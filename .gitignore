@@ -1,2 +1,8 @@
 .DS_Store
 *.log
+
+node_modules
+
+# Yarn (Berry) local state — no vendored .yarn/releases in this repo, so ignore all of .yarn/
+.yarn/*
+.pnp.*

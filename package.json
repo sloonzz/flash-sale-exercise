@@ -1,0 +1,15 @@
+{
+  "name": "flash-sale-exercise",
+  "private": true,
+  "packageManager": "yarn@4.18.0",
+  "workspaces": [
+    "server",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "yarn workspaces foreach -A -pi run dev",
+    "build": "yarn workspaces foreach -A -t run build",
+    "lint": "yarn workspaces foreach -A -pi run lint",
+    "test": "yarn workspace server run test"
+  }
+}
