@@ -10,26 +10,24 @@ This is a Yarn workspaces monorepo:
 - `/frontend` — React app (TypeScript), Vite.
 - `docker-compose.yml` — Redis and Postgres only. The server and frontend are **not** dockerized; they run locally against this infra.
 
-## Dev loop
+## Running the app
 
-1. Start the infra:
-
-   ```sh
-   docker compose up -d
-   ```
-
-2. Install dependencies once, from the repo root:
+1. Install dependencies once, from the repo root:
 
    ```sh
-   yarn install
-   cp server/.env.example server/.env
-   yarn workspace server prisma migrate dev # first time only, applies the schema to Postgres
+   yarn
    ```
 
-3. Run both the API and frontend together:
+2. Run the app. This starts the Docker infra (Postgres and Redis) and the API and frontend together:
 
    ```sh
    yarn dev
    ```
 
    Or run just one, from the repo root: `yarn workspace server run dev` / `yarn workspace frontend run dev`.
+
+3. Apply database migrations (first time, and whenever the schema changes):
+
+   ```sh
+   yarn migrate:db
+   ```
