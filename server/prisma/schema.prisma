@@ -16,6 +16,7 @@ model Sale {
   totalStock  Int      @map("total_stock")
   startTime   DateTime @map("start_time")
   endTime     DateTime @map("end_time")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   orders Order[]
 
