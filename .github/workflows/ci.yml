@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  checks:
+    name: Format, lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - run: corepack enable
+
+      - run: yarn install --immutable
+
+      - run: yarn format:check
+
+      - run: yarn lint
+
+      - run: yarn typecheck
+
+      - run: yarn test:unit
+
+  integration-and-e2e:
+    name: Integration and e2e tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - run: corepack enable
+
+      - run: yarn install --immutable
+
+      - run: docker compose up -d --wait
+
+      - run: yarn workspace server prisma migrate deploy
+
+      - run: yarn test:integration
+
+      - run: yarn test:e2e

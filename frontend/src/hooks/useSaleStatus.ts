@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import type { SaleStatusResponse } from 'common';
 import { ApiError, getSaleStatus } from '../api/client.ts';
+import type { SaleStatusResponse } from 'common';
 
 const POLL_INTERVAL_MS = 4000;
 
