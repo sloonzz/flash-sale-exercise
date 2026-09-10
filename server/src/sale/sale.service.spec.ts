@@ -55,14 +55,14 @@ describe('SaleService', () => {
       await expect(saleService.getStatus()).rejects.toThrow(NotFoundException);
     });
 
-    it('fetches the most recently created sale', async () => {
+    it('fetches the sale with the latest start time', async () => {
       const sale = makeSale();
       vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
 
       await saleService.getStatus();
 
       expect(prisma.sale.findFirst).toHaveBeenCalledWith({
-        orderBy: { createdAt: 'desc' },
+        orderBy: { startTime: 'desc' },
       });
     });
 

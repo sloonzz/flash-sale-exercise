@@ -117,8 +117,11 @@ describe('Sale API (e2e)', () => {
       await expect(redis.get(stockKey(saleId))).resolves.toBe('7');
     });
 
-    it('appends a new sale row instead of overwriting the previous one, and it becomes current', async () => {
-      const firstId = await createSale({ totalStock: 5 });
+    it('appends a new sale row instead of overwriting the previous one, and the later start time becomes current', async () => {
+      const firstId = await createSale({
+        totalStock: 5,
+        startTime: new Date(Date.now() - 120_000),
+      });
 
       const response = await request(app.getHttpServer())
         .post('/admin/sales')
@@ -143,6 +146,37 @@ describe('Sale API (e2e)', () => {
         .get('/sale/status')
         .expect(200);
       expect(status.body.product).toBe('Test Widget v2');
+    });
+
+    it('treats the row with the latest start time as current, even if it was created first', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/sales')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({
+          productName: 'Later Start',
+          totalStock: 10,
+          startTime: new Date(Date.now() - 30_000).toISOString(),
+          endTime: new Date(Date.now() + 60_000).toISOString(),
+        })
+        .expect(201)
+        .then((response) => saleIds.push(response.body.id));
+
+      await request(app.getHttpServer())
+        .post('/admin/sales')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({
+          productName: 'Earlier Start',
+          totalStock: 10,
+          startTime: new Date(Date.now() - 90_000).toISOString(),
+          endTime: new Date(Date.now() + 60_000).toISOString(),
+        })
+        .expect(201)
+        .then((response) => saleIds.push(response.body.id));
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Later Start');
     });
   });
 

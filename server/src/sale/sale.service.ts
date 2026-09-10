@@ -19,7 +19,7 @@ export class SaleService {
   ) {}
 
   private getCurrentSale(): Promise<SaleModel | null> {
-    return this.prisma.sale.findFirst({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.sale.findFirst({ orderBy: { startTime: 'desc' } });
   }
 
   async getStatus(): Promise<SaleStatusResponse> {
