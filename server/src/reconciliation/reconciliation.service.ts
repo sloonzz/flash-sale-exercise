@@ -2,10 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ReservationService } from '../reservation/reservation.service.js';
 
-// Derives Redis's live Reservation state from Postgres's durable Orders.
-// Safe to run any number of times: a first-time seed and a post-crash
-// recovery are the same operation, since each Redis key is only ever
-// populated when missing, never overwritten while live (see ADR-0001).
 @Injectable()
 export class ReconciliationService {
   constructor(
