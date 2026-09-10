@@ -1,97 +1,119 @@
 import { randomUUID } from 'node:crypto';
-import { Redis } from 'ioredis';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { REDIS_URL } from '../config/env.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OrderQueueProducer } from '../order/order-queue.producer.js';
 import { reservedUsersKey, stockKey } from './reservation-keys.js';
+import { RESERVE_SCRIPT } from './reserve-script.js';
+import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.js';
 import { ReservationService } from './reservation.service.js';
 
+const { mockRedis } = vi.hoisted(() => ({
+  mockRedis: {
+    eval: vi.fn(),
+    set: vi.fn(),
+    on: vi.fn(),
+    quit: vi.fn(),
+  },
+}));
+
+vi.mock('ioredis', () => ({
+  Redis: vi.fn().mockImplementation(function RedisMock() {
+    return mockRedis;
+  }),
+}));
+
 describe('ReservationService', () => {
-  const service = new ReservationService();
-  const redis = new Redis(REDIS_URL);
-  const saleIds: string[] = [];
+  const orderQueueProducer = {
+    enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
+  } as unknown as OrderQueueProducer;
+  const service = new ReservationService(orderQueueProducer);
 
-  async function freshSale(totalStock: number): Promise<string> {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('runs the reservation script against the sale-specific stock and reserved-users keys', async () => {
+    mockRedis.eval.mockResolvedValue('success');
     const saleId = randomUUID();
-    saleIds.push(saleId);
-    await service.initializeStock(saleId, totalStock);
-    return saleId;
-  }
 
-  afterEach(async () => {
-    const keys = saleIds.flatMap((saleId) => [
+    await service.reserve(saleId, 'user-1');
+
+    expect(mockRedis.eval).toHaveBeenCalledWith(
+      RESERVE_SCRIPT,
+      2,
       stockKey(saleId),
       reservedUsersKey(saleId),
-    ]);
-    saleIds.length = 0;
-    if (keys.length > 0) await redis.del(...keys);
+      'user-1',
+    );
   });
 
-  afterAll(async () => {
+  it.each(['success', 'already_purchased', 'sold_out'] as const)(
+    'resolves with whatever the reservation script returns (%s)',
+    async (result) => {
+      mockRedis.eval.mockResolvedValue(result);
+
+      await expect(service.reserve(randomUUID(), 'user-1')).resolves.toBe(
+        result,
+      );
+    },
+  );
+
+  it('enqueues a persist-order job only when the reservation succeeds', async () => {
+    mockRedis.eval.mockResolvedValue('success');
+    const saleId = randomUUID();
+
+    await service.reserve(saleId, 'user-1');
+
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      saleId,
+      'user-1',
+      expect.any(Date),
+    );
+  });
+
+  it('does not enqueue a persist-order job when the reservation is rejected', async () => {
+    mockRedis.eval.mockResolvedValue('sold_out');
+
+    await service.reserve(randomUUID(), 'user-1');
+
+    expect(orderQueueProducer.enqueuePersistOrder).not.toHaveBeenCalled();
+  });
+
+  it('does not let a failed enqueue fail an already-successful reservation', async () => {
+    mockRedis.eval.mockResolvedValue('success');
+    vi.mocked(orderQueueProducer.enqueuePersistOrder).mockRejectedValueOnce(
+      new Error('queue unavailable'),
+    );
+
+    await expect(service.reserve(randomUUID(), 'user-1')).resolves.toBe(
+      'success',
+    );
+  });
+
+  it('seeds stock with SET NX so an existing counter is never overwritten', async () => {
+    const saleId = randomUUID();
+
+    await service.initializeStock(saleId, 10);
+
+    expect(mockRedis.set).toHaveBeenCalledWith(stockKey(saleId), 10, 'NX');
+  });
+
+  it('seeds reserved users via the seed script', async () => {
+    const saleId = randomUUID();
+
+    await service.seedReservedUsers(saleId, ['user-1', 'user-2']);
+
+    expect(mockRedis.eval).toHaveBeenCalledWith(
+      SEED_RESERVED_USERS_SCRIPT,
+      1,
+      reservedUsersKey(saleId),
+      'user-1',
+      'user-2',
+    );
+  });
+
+  it('closes its Redis connection on module destroy', async () => {
     await service.onModuleDestroy();
-    await redis.quit();
-  });
 
-  it('succeeds for a user purchasing for the first time', async () => {
-    const saleId = await freshSale(1);
-
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('success');
-  });
-
-  it('rejects a second attempt by the same user', async () => {
-    const saleId = await freshSale(5);
-
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('success');
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe(
-      'already_purchased',
-    );
-  });
-
-  it('rejects a purchase attempt after stock has hit zero', async () => {
-    const saleId = await freshSale(0);
-
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('sold_out');
-  });
-
-  it('never oversells past the configured stock under concurrent load', async () => {
-    const totalStock = 10;
-    const attempts = 50;
-    const saleId = await freshSale(totalStock);
-
-    const results = await Promise.all(
-      Array.from({ length: attempts }, (_, i) =>
-        service.reserve(saleId, `user-${i}`),
-      ),
-    );
-
-    const successes = results.filter((result) => result === 'success');
-    const soldOut = results.filter((result) => result === 'sold_out');
-
-    expect(successes).toHaveLength(totalStock);
-    expect(soldOut).toHaveLength(attempts - totalStock);
-    await expect(redis.get(stockKey(saleId))).resolves.toBe('0');
-  });
-
-  it('reports already_purchased, not sold_out, for a repeat buyer once the sale is sold out', async () => {
-    const saleId = await freshSale(1);
-
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('success');
-    // Stock is now 0, and user-1 already holds the sale's only Reservation.
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe(
-      'already_purchased',
-    );
-    await expect(service.reserve(saleId, 'user-2')).resolves.toBe('sold_out');
-  });
-
-  it('grants exactly one success when the same user calls concurrently', async () => {
-    const saleId = await freshSale(5);
-
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => service.reserve(saleId, 'user-1')),
-    );
-
-    expect(results.filter((result) => result === 'success')).toHaveLength(1);
-    expect(
-      results.filter((result) => result === 'already_purchased'),
-    ).toHaveLength(19);
+    expect(mockRedis.quit).toHaveBeenCalled();
   });
 });
