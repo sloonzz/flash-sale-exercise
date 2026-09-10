@@ -16,10 +16,12 @@ export class ApiError extends Error {
   }
 }
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(`${API_URL}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
