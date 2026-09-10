@@ -20,12 +20,12 @@ describe('ReconciliationService (integration)', () => {
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
   } as unknown as OrderQueueProducer;
-  const reservationService = new ReservationService(orderQueueProducer);
+  const redis = new Redis(REDIS_URL);
+  const reservationService = new ReservationService(redis, orderQueueProducer);
   const reconciliationService = new ReconciliationService(
     prisma,
     reservationService,
   );
-  const redis = new Redis(REDIS_URL);
   const saleIds: string[] = [];
 
   beforeAll(async () => {
@@ -57,7 +57,6 @@ describe('ReconciliationService (integration)', () => {
   });
 
   afterAll(async () => {
-    await reservationService.onModuleDestroy();
     await prisma.onModuleDestroy();
     await redis.quit();
   });
