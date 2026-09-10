@@ -142,12 +142,9 @@ export function BuyerPage() {
           type="text"
           value={userId}
           onChange={(event) => {
-            const value = event.target.value;
-            setUserId(value);
+            setUserId(event.target.value);
             setFeedback(null);
-            if (!value.trim()) {
-              setSecured(null);
-            }
+            setSecured(null);
           }}
           placeholder="you@example.com"
           autoComplete="username"

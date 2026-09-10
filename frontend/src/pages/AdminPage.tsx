@@ -31,10 +31,16 @@ export function AdminPage() {
     setAdminKey(trimmed);
   }
 
-  function lock() {
+  function forgetKey() {
     sessionStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
     setAdminKey('');
     setKeyInput('');
+  }
+
+  function lock() {
+    forgetKey();
+    setFeedback(null);
+    setCreated(null);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -59,7 +65,7 @@ export function AdminPage() {
         (err.status === 401 || err.status === 403)
       ) {
         setFeedback({ kind: 'error', message: 'Invalid admin key.' });
-        lock();
+        forgetKey();
       } else {
         setFeedback({
           kind: 'error',
@@ -91,6 +97,10 @@ export function AdminPage() {
             Unlock
           </button>
         </form>
+
+        {feedback && (
+          <p className={`banner banner-${feedback.kind}`}>{feedback.message}</p>
+        )}
       </section>
     );
   }

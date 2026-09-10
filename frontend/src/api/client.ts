@@ -31,11 +31,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
+    const body: unknown = await response.json().catch(() => null);
+    const bodyMessage =
+      body && typeof body === 'object' && 'message' in body
+        ? (body as { message: unknown }).message
+        : null;
     const message =
-      (body && typeof body === 'object' && 'message' in body
-        ? String((body as { message: unknown }).message)
-        : null) ?? `Request failed with status ${response.status}`;
+      typeof bodyMessage === 'string' && bodyMessage.length > 0
+        ? bodyMessage
+        : `Request failed with status ${response.status}`;
     throw new ApiError(message, response.status);
   }
 
