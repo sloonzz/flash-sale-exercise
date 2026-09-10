@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.js';
 import { OrderQueueProducer } from '../order/order-queue.producer.js';
+import { createTestQueue } from '../order/order-queue.test-support.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.js';
 import { ReservationService } from '../reservation/reservation.service.js';
@@ -9,7 +10,8 @@ import { ReconciliationService } from './reconciliation.service.js';
 
 describe('ReconciliationService', () => {
   const prisma = new PrismaService();
-  const orderQueueProducer = new OrderQueueProducer();
+  const orderQueue = createTestQueue();
+  const orderQueueProducer = new OrderQueueProducer(orderQueue);
   const reservationService = new ReservationService(orderQueueProducer);
   const reconciliationService = new ReconciliationService(
     prisma,
@@ -48,7 +50,7 @@ describe('ReconciliationService', () => {
 
   afterAll(async () => {
     await reservationService.onModuleDestroy();
-    await orderQueueProducer.onModuleDestroy();
+    await orderQueue.close();
     await prisma.onModuleDestroy();
     await redis.quit();
   });

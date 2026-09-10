@@ -4,11 +4,13 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.js';
 import { OrderQueueProducer } from '../order/order-queue.producer.js';
 import { PERSIST_ORDER_QUEUE } from '../order/persist-order-job.js';
+import { createTestQueue } from '../order/order-queue.test-support.js';
 import { reservedUsersKey, stockKey } from './reservation-keys.js';
 import { ReservationService } from './reservation.service.js';
 
 describe('ReservationService', () => {
-  const orderQueueProducer = new OrderQueueProducer();
+  const orderQueue = createTestQueue();
+  const orderQueueProducer = new OrderQueueProducer(orderQueue);
   const service = new ReservationService(orderQueueProducer);
   const redis = new Redis(REDIS_URL);
   const saleIds: string[] = [];
@@ -53,7 +55,7 @@ describe('ReservationService', () => {
 
   afterAll(async () => {
     await service.onModuleDestroy();
-    await orderQueueProducer.onModuleDestroy();
+    await orderQueue.close();
     await redis.quit();
   });
 

@@ -486,6 +486,32 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@nestjs/bull-shared@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "@nestjs/bull-shared@npm:12.0.0"
+  dependencies:
+    tslib: "npm:2.8.1"
+  peerDependencies:
+    "@nestjs/common": ^10.0.0 || ^11.0.0 || ^12.0.0
+    "@nestjs/core": ^10.0.0 || ^11.0.0 || ^12.0.0
+  checksum: 10c0/781a37c8e4b095630a451a77f8c0f9a210982c3e2c768e5bf046d84da4aed7907fc5701062e35368d6f2116ed7c8be7fd768cd41c7c88d9ae6f250b866f2ab0d
+  languageName: node
+  linkType: hard
+
+"@nestjs/bullmq@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "@nestjs/bullmq@npm:12.0.0"
+  dependencies:
+    "@nestjs/bull-shared": "npm:^12.0.0"
+    tslib: "npm:2.8.1"
+  peerDependencies:
+    "@nestjs/common": ^10.0.0 || ^11.0.0 || ^12.0.0
+    "@nestjs/core": ^10.0.0 || ^11.0.0 || ^12.0.0
+    bullmq: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0
+  checksum: 10c0/45fd891c766b31e8deacc0ad5c9e96bea7bda4b85a9e6e2041ba131521708bf5d4bb62960f1d8bee9b1fd2b83f022ee5f264710448924532f6b9ff38c08f5797
+  languageName: node
+  linkType: hard
+
 "@nestjs/cli@npm:^12.0.0":
   version: 12.0.0
   resolution: "@nestjs/cli@npm:12.0.0"
@@ -4797,6 +4823,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "server@workspace:server"
   dependencies:
+    "@nestjs/bullmq": "npm:^12.0.0"
     "@nestjs/cli": "npm:^12.0.0"
     "@nestjs/common": "npm:^12.0.1"
     "@nestjs/core": "npm:^12.0.1"

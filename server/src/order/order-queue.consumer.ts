@@ -1,12 +1,6 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
-import { Worker } from 'bullmq';
-import { Redis } from 'ioredis';
-import { REDIS_URL } from '../config/env.js';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
+import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   PERSIST_ORDER_QUEUE,
@@ -14,38 +8,23 @@ import {
 } from './persist-order-job.js';
 import { persistOrder } from './persist-order.processor.js';
 
-@Injectable()
-export class OrderQueueConsumer implements OnModuleInit, OnModuleDestroy {
+@Processor(PERSIST_ORDER_QUEUE)
+export class OrderQueueConsumer extends WorkerHost {
   private readonly logger = new Logger(OrderQueueConsumer.name);
-  private readonly connection = new Redis(REDIS_URL, {
-    maxRetriesPerRequest: null,
-  });
-  private worker?: Worker<PersistOrderJobData>;
 
   constructor(private readonly prisma: PrismaService) {
-    // An unhandled 'error' event on an ioredis connection crashes the
-    // process; a worker connection blip must not take down the API.
-    this.connection.on('error', (error) =>
-      this.logger.error('Redis connection error', error),
-    );
+    super();
   }
 
-  onModuleInit() {
-    this.worker = new Worker<PersistOrderJobData>(
-      PERSIST_ORDER_QUEUE,
-      (job) => persistOrder(this.prisma, job.data),
-      { connection: this.connection },
-    );
-    this.worker.on('failed', (job, error) =>
-      this.logger.error(
-        `persist-order job ${job?.id} failed (attempt ${job?.attemptsMade})`,
-        error,
-      ),
-    );
+  async process(job: Job<PersistOrderJobData>): Promise<void> {
+    await persistOrder(this.prisma, job.data);
   }
 
-  async onModuleDestroy() {
-    await this.worker?.close();
-    await this.connection.quit();
+  @OnWorkerEvent('failed')
+  onFailed(job: Job<PersistOrderJobData> | undefined, error: Error) {
+    this.logger.error(
+      `persist-order job ${job?.id} failed (attempt ${job?.attemptsMade})`,
+      error,
+    );
   }
 }

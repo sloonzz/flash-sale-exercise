@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.js';
+import { createTestQueue } from './order-queue.test-support.js';
 import { OrderQueueProducer } from './order-queue.producer.js';
 import { PERSIST_ORDER_QUEUE } from './persist-order-job.js';
 
 describe('OrderQueueProducer', () => {
-  const producer = new OrderQueueProducer();
+  const queue = createTestQueue();
+  const producer = new OrderQueueProducer(queue);
   const redis = new Redis(REDIS_URL);
   const jobIds: string[] = [];
 
@@ -26,7 +28,7 @@ describe('OrderQueueProducer', () => {
   });
 
   afterAll(async () => {
-    await producer.onModuleDestroy();
+    await queue.close();
     await redis.quit();
   });
 
