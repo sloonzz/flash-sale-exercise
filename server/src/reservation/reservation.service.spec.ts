@@ -11,6 +11,8 @@ describe('ReservationService', () => {
   const mockRedis = {
     eval: vi.fn(),
     set: vi.fn(),
+    get: vi.fn(),
+    sismember: vi.fn(),
   };
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
@@ -101,6 +103,39 @@ describe('ReservationService', () => {
       reservedUsersKey(saleId),
       'user-1',
       'user-2',
+    );
+  });
+
+  it('reads the stock counter as a number', async () => {
+    const saleId = randomUUID();
+    mockRedis.get.mockResolvedValue('7');
+
+    await expect(service.getStock(saleId)).resolves.toBe(7);
+    expect(mockRedis.get).toHaveBeenCalledWith(stockKey(saleId));
+  });
+
+  it('reports a missing stock counter as null', async () => {
+    mockRedis.get.mockResolvedValue(null);
+
+    await expect(service.getStock(randomUUID())).resolves.toBeNull();
+  });
+
+  it('reports whether a user is in the reserved-users set', async () => {
+    const saleId = randomUUID();
+    mockRedis.sismember.mockResolvedValue(1);
+
+    await expect(service.isReserved(saleId, 'user-1')).resolves.toBe(true);
+    expect(mockRedis.sismember).toHaveBeenCalledWith(
+      reservedUsersKey(saleId),
+      'user-1',
+    );
+  });
+
+  it('reports a user not in the reserved-users set as false', async () => {
+    mockRedis.sismember.mockResolvedValue(0);
+
+    await expect(service.isReserved(randomUUID(), 'user-1')).resolves.toBe(
+      false,
     );
   });
 });

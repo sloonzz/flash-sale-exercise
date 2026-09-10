@@ -21,6 +21,16 @@ export class ReservationService {
     await this.redis.set(stockKey(saleId), totalStock, 'NX');
   }
 
+  async getStock(saleId: string): Promise<number | null> {
+    const stock = await this.redis.get(stockKey(saleId));
+    return stock === null ? null : Number(stock);
+  }
+
+  async isReserved(saleId: string, userId: string): Promise<boolean> {
+    const result = await this.redis.sismember(reservedUsersKey(saleId), userId);
+    return result === 1;
+  }
+
   async seedReservedUsers(saleId: string, userIds: string[]): Promise<void> {
     await this.redis.eval(
       SEED_RESERVED_USERS_SCRIPT,
@@ -40,9 +50,6 @@ export class ReservationService {
     )) as ReservationResult;
 
     if (result === 'success') {
-      // The Reservation is already committed and authoritative (per
-      // ADR-0001); a transient failure enqueueing its persist-order job
-      // must not fail the caller's already-successful purchase.
       try {
         await this.orderQueueProducer.enqueuePersistOrder(
           saleId,

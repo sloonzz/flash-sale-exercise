@@ -5,9 +5,16 @@ import { OrderModule } from './order/order.module.ts';
 import { PrismaModule } from './prisma/prisma.module.ts';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.ts';
 import { ReservationModule } from './reservation/reservation.module.ts';
+import { SaleModule } from './sale/sale.module.ts';
 
 @Module({
-  imports: [PrismaModule, OrderModule, ReservationModule, ReconciliationModule],
+  imports: [
+    PrismaModule,
+    OrderModule,
+    ReservationModule,
+    ReconciliationModule,
+    SaleModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
