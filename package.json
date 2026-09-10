@@ -11,6 +11,13 @@
     "migrate:db": "yarn workspace server prisma migrate dev",
     "build": "yarn workspaces foreach -A -t run build",
     "lint": "yarn workspaces foreach -A -pi run lint",
-    "test": "yarn workspace server run test"
+    "format": "prettier --write \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
+    "test": "yarn workspace server run test",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "prettier": "^3.4.2"
   }
 }
