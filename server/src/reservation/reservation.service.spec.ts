@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrderQueueProducer } from '../order/order-queue.producer.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
@@ -6,26 +7,18 @@ import { RESERVE_SCRIPT } from './reserve-script.ts';
 import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
 import { ReservationService } from './reservation.service.ts';
 
-const { mockRedis } = vi.hoisted(() => ({
-  mockRedis: {
+describe('ReservationService', () => {
+  const mockRedis = {
     eval: vi.fn(),
     set: vi.fn(),
-    on: vi.fn(),
-    quit: vi.fn(),
-  },
-}));
-
-vi.mock('ioredis', () => ({
-  Redis: vi.fn().mockImplementation(function RedisMock() {
-    return mockRedis;
-  }),
-}));
-
-describe('ReservationService', () => {
+  };
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
   } as unknown as OrderQueueProducer;
-  const service = new ReservationService(orderQueueProducer);
+  const service = new ReservationService(
+    mockRedis as unknown as Redis,
+    orderQueueProducer,
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -109,11 +102,5 @@ describe('ReservationService', () => {
       'user-1',
       'user-2',
     );
-  });
-
-  it('closes its Redis connection on module destroy', async () => {
-    await service.onModuleDestroy();
-
-    expect(mockRedis.quit).toHaveBeenCalled();
   });
 });

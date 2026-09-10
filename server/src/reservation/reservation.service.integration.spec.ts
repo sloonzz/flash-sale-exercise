@@ -10,8 +10,8 @@ describe('ReservationService (integration)', () => {
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
   } as unknown as OrderQueueProducer;
-  const service = new ReservationService(orderQueueProducer);
   const redis = new Redis(REDIS_URL);
+  const service = new ReservationService(redis, orderQueueProducer);
   const saleIds: string[] = [];
 
   async function freshSale(totalStock: number): Promise<string> {
@@ -31,7 +31,6 @@ describe('ReservationService (integration)', () => {
   });
 
   afterAll(async () => {
-    await service.onModuleDestroy();
     await redis.quit();
   });
 

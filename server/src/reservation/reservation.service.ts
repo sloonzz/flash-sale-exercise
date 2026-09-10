@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_URL } from '../config/env.ts';
 import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { REDIS_CLIENT } from '../redis/redis.constants.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { RESERVE_SCRIPT } from './reserve-script.ts';
 import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
@@ -9,21 +9,13 @@ import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
 export type ReservationResult = 'success' | 'already_purchased' | 'sold_out';
 
 @Injectable()
-export class ReservationService implements OnModuleDestroy {
+export class ReservationService {
   private readonly logger = new Logger(ReservationService.name);
-  private readonly redis = new Redis(REDIS_URL);
 
-  constructor(private readonly orderQueueProducer: OrderQueueProducer) {
-    // An unhandled 'error' event on an ioredis connection crashes the
-    // process; a connection blip must not take down the API.
-    this.redis.on('error', (error) =>
-      this.logger.error('Redis connection error', error),
-    );
-  }
-
-  async onModuleDestroy() {
-    await this.redis.quit();
-  }
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly orderQueueProducer: OrderQueueProducer,
+  ) {}
 
   async initializeStock(saleId: string, totalStock: number): Promise<void> {
     await this.redis.set(stockKey(saleId), totalStock, 'NX');
