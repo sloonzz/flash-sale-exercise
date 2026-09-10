@@ -5,7 +5,7 @@ A single-product, limited-stock, time-boxed sale where each user may purchase at
 ## Language
 
 **Sale**:
-A time-boxed event for one Product: a configured Stock count, a start time, and an end time. Configuring a new Sale appends a row rather than overwriting the old one, but exactly one Sale is ever current: the row with the latest start time. Older rows are retained only as history — they are never read again by status, purchase, or secured checks.
+A time-boxed event for one Product: a configured Stock count, a start time, and an end time. Configuring a new Sale appends a row rather than overwriting the old one, but exactly one Sale is ever current: the earliest-starting row that is neither sold out nor past its end time. If no row qualifies (every Sale is sold out or ended), the row with the latest start time is current instead, so a terminal status (SoldOut/Ended) still has a Sale to attach to. Rows that aren't current are retained only as history — they are never read by status, purchase, or secured checks.
 
 **Product**:
 The single item being sold in a Sale. Modeled minimally (id, name) — not a general catalog concept.

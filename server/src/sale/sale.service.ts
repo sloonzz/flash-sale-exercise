@@ -18,7 +18,22 @@ export class SaleService {
     private readonly reconciliationService: ReconciliationService,
   ) {}
 
-  private getCurrentSale(): Promise<SaleModel | null> {
+  private async getCurrentSale(): Promise<SaleModel | null> {
+    const openCandidates = await this.prisma.sale.findMany({
+      where: { endTime: { gte: new Date() } },
+      orderBy: { startTime: 'asc' },
+    });
+
+    for (const sale of openCandidates) {
+      const stock = await this.reservationService.getStock(sale.id);
+      if (stock === null || stock > 0) {
+        return sale;
+      }
+    }
+
+    // No sale is open (all are sold out or none exist yet without ending) —
+    // fall back to the most recently started sale so terminal statuses
+    // (SoldOut/Ended) still resolve to a sale instead of "not found".
     return this.prisma.sale.findFirst({ orderBy: { startTime: 'desc' } });
   }
 
