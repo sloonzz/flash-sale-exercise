@@ -1,4 +1,5 @@
 import type { ReservationResult } from '../reservation/reservation.service.ts';
+import type { CreateSaleBody } from './sale.schemas.ts';
 
 export type SaleStatus = 'upcoming' | 'active' | 'soldout' | 'ended';
 
@@ -11,9 +12,4 @@ export interface SaleStatusResponse {
 
 export type PurchaseResult = ReservationResult | 'ended' | 'not_active';
 
-export interface CreateSaleInput {
-  productName: string;
-  totalStock: number;
-  startTime: Date;
-  endTime: Date;
-}
+export type CreateSaleInput = CreateSaleBody;
