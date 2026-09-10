@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.js';
+import { OrderQueueProducer } from '../order/order-queue.producer.js';
+import { PERSIST_ORDER_QUEUE } from '../order/persist-order-job.js';
 import { reservedUsersKey, stockKey } from './reservation-keys.js';
 import { ReservationService } from './reservation.service.js';
 
 describe('ReservationService', () => {
-  const service = new ReservationService();
+  const orderQueueProducer = new OrderQueueProducer();
+  const service = new ReservationService(orderQueueProducer);
   const redis = new Redis(REDIS_URL);
   const saleIds: string[] = [];
 
@@ -22,12 +25,35 @@ describe('ReservationService', () => {
       stockKey(saleId),
       reservedUsersKey(saleId),
     ]);
-    saleIds.length = 0;
     if (keys.length > 0) await redis.del(...keys);
+
+    // Scoped by this file's own sale ids (random UUIDs, never reused across
+    // spec files) so this cleanup can't race with order-queue.producer.spec.ts
+    // running its own assertions against the same queue concurrently.
+    const jobKeyLists = await Promise.all(
+      saleIds.map((saleId) =>
+        redis.keys(`bull:${PERSIST_ORDER_QUEUE}:${saleId}|*`),
+      ),
+    );
+    const jobKeys = jobKeyLists.flat();
+    if (jobKeys.length > 0) await redis.del(...jobKeys);
+    const prefix = `bull:${PERSIST_ORDER_QUEUE}:`;
+    await Promise.all(
+      jobKeys.map((key) =>
+        redis.lrem(
+          `bull:${PERSIST_ORDER_QUEUE}:wait`,
+          0,
+          key.slice(prefix.length),
+        ),
+      ),
+    );
+
+    saleIds.length = 0;
   });
 
   afterAll(async () => {
     await service.onModuleDestroy();
+    await orderQueueProducer.onModuleDestroy();
     await redis.quit();
   });
 
@@ -93,5 +119,27 @@ describe('ReservationService', () => {
     expect(
       results.filter((result) => result === 'already_purchased'),
     ).toHaveLength(19);
+  });
+
+  it('enqueues a persist-order job for a successful reservation', async () => {
+    const saleId = await freshSale(1);
+
+    await service.reserve(saleId, 'user-1');
+
+    const job = await redis.hgetall(
+      `bull:${PERSIST_ORDER_QUEUE}:${saleId}|user-1`,
+    );
+    const data = JSON.parse(job.data);
+    expect(data).toMatchObject({ saleId, userId: 'user-1' });
+  });
+
+  it('does not enqueue a persist-order job for a rejected reservation', async () => {
+    const saleId = await freshSale(0);
+
+    await service.reserve(saleId, 'user-1');
+
+    await expect(
+      redis.exists(`bull:${PERSIST_ORDER_QUEUE}:${saleId}|user-1`),
+    ).resolves.toBe(0);
   });
 });
