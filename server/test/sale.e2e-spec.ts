@@ -180,6 +180,33 @@ describe('Sale API (e2e)', () => {
     });
   });
 
+  describe('POST /admin/login', () => {
+    it('rejects a request with no x-admin-key header', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/login')
+        .send()
+        .expect(401);
+    });
+
+    it('rejects a request with the wrong x-admin-key header', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/login')
+        .set('x-admin-key', 'wrong-key')
+        .send()
+        .expect(403);
+    });
+
+    it('returns the admin key when it matches', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/admin/login')
+        .set('x-admin-key', ADMIN_KEY)
+        .send()
+        .expect(201);
+
+      expect(response.body).toEqual({ adminKey: ADMIN_KEY });
+    });
+  });
+
   describe('GET /sale/status', () => {
     it('reports upcoming before the start time', async () => {
       await createSale({

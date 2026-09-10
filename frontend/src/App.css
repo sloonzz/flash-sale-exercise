@@ -151,6 +151,12 @@
   font-size: 14px;
 }
 
+.field-error {
+  margin: -6px 0 8px;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
 .banner {
   border-radius: 8px;
   padding: 10px 12px;
@@ -188,6 +194,9 @@
     color: #facc15;
   }
   .banner-error {
+    color: #f87171;
+  }
+  .field-error {
     color: #f87171;
   }
 }

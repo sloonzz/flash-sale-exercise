@@ -20,10 +20,14 @@ export interface SecuredResponse {
   secured: boolean;
 }
 
+export interface AdminLoginResponse {
+  adminKey: string;
+}
+
 export const userIdSchema = z
-  .string({ error: 'userId is required' })
+  .string({ error: 'User ID is required' })
   .trim()
-  .min(1, 'userId is required');
+  .min(1, 'User ID is required');
 
 export const purchaseBodySchema = z.object({
   userId: userIdSchema,
@@ -33,25 +37,22 @@ export type PurchaseBody = z.infer<typeof purchaseBodySchema>;
 export const createSaleBodySchema = z
   .object({
     productName: z
-      .string({ error: 'productName is required' })
+      .string({ error: 'Product name is required' })
       .trim()
-      .min(1, 'productName is required'),
+      .min(1, 'Product name is required'),
     totalStock: z
-      .number()
-      .int('totalStock must be a non-negative integer')
-      .nonnegative('totalStock must be a non-negative integer'),
-    startTime: z.coerce.date({ error: 'startTime must be a valid date' }),
-    endTime: z.coerce.date({ error: 'endTime must be a valid date' }),
+      .number({ error: 'Total stock is required' })
+      .int('Total stock must be a whole number')
+      .nonnegative('Total stock cannot be negative'),
+    startTime: z.coerce.date({ error: 'Start time must be a valid date' }),
+    endTime: z.coerce.date({ error: 'End time must be a valid date' }),
   })
   .refine((data) => data.startTime < data.endTime, {
-    message: 'startTime must be before endTime',
+    message: 'Start time must be before end time',
     path: ['startTime'],
   });
 export type CreateSaleBody = z.infer<typeof createSaleBodySchema>;
 
-// Wire-level request/response shapes (JSON over HTTP), as opposed to
-// `CreateSaleBody`, which is the post-validation shape (dates coerced) used
-// internally by the server.
 export interface CreateSaleRequest {
   productName: string;
   totalStock: number;

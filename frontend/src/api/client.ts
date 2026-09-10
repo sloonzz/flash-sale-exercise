@@ -1,4 +1,5 @@
 import type {
+  AdminLoginResponse,
   CreateSaleRequest,
   CreateSaleResponse,
   PurchaseResponse,
@@ -67,6 +68,13 @@ export function checkSecured(
 ): Promise<SecuredResponse> {
   return request<SecuredResponse>(`/purchase/${encodeURIComponent(userId)}`, {
     signal,
+  });
+}
+
+export function adminLogin(adminKey: string): Promise<AdminLoginResponse> {
+  return request<AdminLoginResponse>('/admin/login', {
+    method: 'POST',
+    headers: { 'x-admin-key': adminKey },
   });
 }
 
