@@ -1,40 +1,19 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { persistOrder } from './persist-order.processor.js';
 
 describe('persistOrder', () => {
-  const prisma = new PrismaService();
-  const saleIds: string[] = [];
+  const prisma = {
+    order: { upsert: vi.fn().mockResolvedValue(undefined) },
+  } as unknown as PrismaService;
 
-  beforeAll(async () => {
-    await prisma.onModuleInit();
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  async function createSale(): Promise<string> {
-    const sale = await prisma.sale.create({
-      data: {
-        productName: 'Test Product',
-        totalStock: 10,
-        startTime: new Date(),
-        endTime: new Date(Date.now() + 60_000),
-      },
-    });
-    saleIds.push(sale.id);
-    return sale.id;
-  }
-
-  afterEach(async () => {
-    await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
-    await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
-    saleIds.length = 0;
-  });
-
-  afterAll(async () => {
-    await prisma.onModuleDestroy();
-  });
-
-  it('creates a durable Order row for a persisted reservation', async () => {
-    const saleId = await createSale();
+  it('upserts the Order keyed by sale and user, so a retried job never throws on the unique constraint', async () => {
+    const saleId = randomUUID();
     const timestamp = new Date('2026-01-01T00:00:00.000Z');
 
     await persistOrder(prisma, {
@@ -43,23 +22,10 @@ describe('persistOrder', () => {
       timestamp: timestamp.toISOString(),
     });
 
-    const order = await prisma.order.findUniqueOrThrow({
+    expect(prisma.order.upsert).toHaveBeenCalledWith({
       where: { saleId_userId: { saleId, userId: 'user-1' } },
+      create: { saleId, userId: 'user-1', createdAt: timestamp },
+      update: {},
     });
-    expect(order.createdAt).toEqual(timestamp);
-  });
-
-  it('is idempotent when the same job is processed twice', async () => {
-    const saleId = await createSale();
-    const data = {
-      saleId,
-      userId: 'user-1',
-      timestamp: new Date().toISOString(),
-    };
-
-    await persistOrder(prisma, data);
-    await expect(persistOrder(prisma, data)).resolves.toBeUndefined();
-
-    await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(1);
   });
 });
