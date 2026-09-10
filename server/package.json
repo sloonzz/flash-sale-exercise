@@ -23,7 +23,8 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
-    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "migrate:e2e-db": "DOTENV_CONFIG_PATH=.env.e2e prisma migrate deploy"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",

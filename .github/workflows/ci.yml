@@ -53,6 +53,8 @@ jobs:
 
       - run: yarn workspace server prisma migrate deploy
 
+      - run: yarn workspace server migrate:e2e-db
+
       - run: yarn test:integration
 
       - run: yarn test:e2e
