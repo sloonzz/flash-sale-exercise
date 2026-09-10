@@ -18,7 +18,10 @@ describe('ReservationService', () => {
   }
 
   afterEach(async () => {
-    const keys = saleIds.flatMap((saleId) => [stockKey(saleId), reservedUsersKey(saleId)]);
+    const keys = saleIds.flatMap((saleId) => [
+      stockKey(saleId),
+      reservedUsersKey(saleId),
+    ]);
     saleIds.length = 0;
     if (keys.length > 0) await redis.del(...keys);
   });
@@ -38,7 +41,9 @@ describe('ReservationService', () => {
     const saleId = await freshSale(5);
 
     await expect(service.reserve(saleId, 'user-1')).resolves.toBe('success');
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('already_purchased');
+    await expect(service.reserve(saleId, 'user-1')).resolves.toBe(
+      'already_purchased',
+    );
   });
 
   it('rejects a purchase attempt after stock has hit zero', async () => {
@@ -53,7 +58,9 @@ describe('ReservationService', () => {
     const saleId = await freshSale(totalStock);
 
     const results = await Promise.all(
-      Array.from({ length: attempts }, (_, i) => service.reserve(saleId, `user-${i}`)),
+      Array.from({ length: attempts }, (_, i) =>
+        service.reserve(saleId, `user-${i}`),
+      ),
     );
 
     const successes = results.filter((result) => result === 'success');
@@ -69,16 +76,22 @@ describe('ReservationService', () => {
 
     await expect(service.reserve(saleId, 'user-1')).resolves.toBe('success');
     // Stock is now 0, and user-1 already holds the sale's only Reservation.
-    await expect(service.reserve(saleId, 'user-1')).resolves.toBe('already_purchased');
+    await expect(service.reserve(saleId, 'user-1')).resolves.toBe(
+      'already_purchased',
+    );
     await expect(service.reserve(saleId, 'user-2')).resolves.toBe('sold_out');
   });
 
   it('grants exactly one success when the same user calls concurrently', async () => {
     const saleId = await freshSale(5);
 
-    const results = await Promise.all(Array.from({ length: 20 }, () => service.reserve(saleId, 'user-1')));
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => service.reserve(saleId, 'user-1')),
+    );
 
     expect(results.filter((result) => result === 'success')).toHaveLength(1);
-    expect(results.filter((result) => result === 'already_purchased')).toHaveLength(19);
+    expect(
+      results.filter((result) => result === 'already_purchased'),
+    ).toHaveLength(19);
   });
 });

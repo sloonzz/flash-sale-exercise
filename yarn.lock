@@ -2935,6 +2935,9 @@ __metadata:
 "flash-sale-exercise@workspace:.":
   version: 0.0.0-use.local
   resolution: "flash-sale-exercise@workspace:."
+  dependencies:
+    husky: "npm:^9.1.7"
+    prettier: "npm:^3.4.2"
   languageName: unknown
   linkType: soft
 
@@ -3182,6 +3185,15 @@ __metadata:
     statuses: "npm:~2.0.2"
     toidentifier: "npm:~1.0.1"
   checksum: 10c0/fb38906cef4f5c83952d97661fe14dc156cb59fe54812a42cd448fa57b5c5dfcb38a40a916957737bd6b87aab257c0648d63eb5b6a9ca9f548e105b6072712d4
+  languageName: node
+  linkType: hard
+
+"husky@npm:^9.1.7":
+  version: 9.1.7
+  resolution: "husky@npm:9.1.7"
+  bin:
+    husky: bin.js
+  checksum: 10c0/35bb110a71086c48906aa7cd3ed4913fb913823715359d65e32e0b964cb1e255593b0ae8014a5005c66a68e6fa66c38dcfa8056dbbdfb8b0187c0ffe7ee3a58f
   languageName: node
   linkType: hard
 
