@@ -19,7 +19,7 @@ export class SaleService {
   ) {}
 
   private getCurrentSale(): Promise<SaleModel | null> {
-    return this.prisma.sale.findFirst();
+    return this.prisma.sale.findFirst({ orderBy: { createdAt: 'desc' } });
   }
 
   async getStatus(): Promise<SaleStatusResponse> {
@@ -62,13 +62,7 @@ export class SaleService {
   }
 
   async createSale(input: CreateSaleInput): Promise<SaleModel> {
-    const existing = await this.getCurrentSale();
-    const sale = existing
-      ? await this.prisma.sale.update({
-          where: { id: existing.id },
-          data: input,
-        })
-      : await this.prisma.sale.create({ data: input });
+    const sale = await this.prisma.sale.create({ data: input });
 
     await this.reconciliationService.reconcile(sale.id);
 

@@ -55,6 +55,17 @@ describe('SaleService', () => {
       await expect(saleService.getStatus()).rejects.toThrow(NotFoundException);
     });
 
+    it('fetches the most recently created sale', async () => {
+      const sale = makeSale();
+      vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
+
+      await saleService.getStatus();
+
+      expect(prisma.sale.findFirst).toHaveBeenCalledWith({
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
     it('reports upcoming before the start time', async () => {
       const sale = makeSale({ startTime: new Date(Date.now() + 60_000) });
       vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
@@ -162,8 +173,7 @@ describe('SaleService', () => {
       endTime: new Date(Date.now() + 60_000),
     };
 
-    it('creates a new sale when none exists yet, then reconciles it', async () => {
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
+    it('appends a new sale row rather than overwriting the existing one', async () => {
       const created = makeSale(input);
       vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
 
@@ -171,23 +181,8 @@ describe('SaleService', () => {
 
       expect(prisma.sale.create).toHaveBeenCalledWith({ data: input });
       expect(prisma.sale.update).not.toHaveBeenCalled();
+      expect(prisma.sale.findFirst).not.toHaveBeenCalled();
       expect(reconciliationService.reconcile).toHaveBeenCalledWith(created.id);
-    });
-
-    it('reconfigures the existing sale row rather than creating a second one', async () => {
-      const existing = makeSale();
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(existing as never);
-      const updated = { ...existing, ...input };
-      vi.mocked(prisma.sale.update).mockResolvedValue(updated as never);
-
-      await saleService.createSale(input);
-
-      expect(prisma.sale.update).toHaveBeenCalledWith({
-        where: { id: existing.id },
-        data: input,
-      });
-      expect(prisma.sale.create).not.toHaveBeenCalled();
-      expect(reconciliationService.reconcile).toHaveBeenCalledWith(existing.id);
     });
   });
 });

@@ -117,7 +117,7 @@ describe('Sale API (e2e)', () => {
       await expect(redis.get(stockKey(saleId))).resolves.toBe('7');
     });
 
-    it('reconfigures the existing sale row rather than creating a second one', async () => {
+    it('appends a new sale row instead of overwriting the previous one, and it becomes current', async () => {
       const firstId = await createSale({ totalStock: 5 });
 
       const response = await request(app.getHttpServer())
@@ -130,9 +130,19 @@ describe('Sale API (e2e)', () => {
           endTime: new Date(Date.now() + 60_000).toISOString(),
         })
         .expect(201);
+      saleIds.push(response.body.id);
 
-      expect(response.body.id).toBe(firstId);
-      await expect(prisma.sale.count()).resolves.toBe(1);
+      expect(response.body.id).not.toBe(firstId);
+      await expect(
+        prisma.sale.count({
+          where: { id: { in: [firstId, response.body.id] } },
+        }),
+      ).resolves.toBe(2);
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Test Widget v2');
     });
   });
 
