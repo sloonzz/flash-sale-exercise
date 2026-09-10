@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import type { CreateSaleRequest, CreateSaleResponse } from 'common';
 import { ApiError, createSale } from '../api/client.ts';
-import type { CreateSaleResponse } from '../api/types.ts';
 
 const ADMIN_KEY_STORAGE_KEY = 'flashSale.adminKey';
 
@@ -19,9 +20,12 @@ export function AdminPage() {
   const [totalStock, setTotalStock] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [created, setCreated] = useState<CreateSaleResponse | null>(null);
+
+  const createSaleMutation = useMutation({
+    mutationFn: (input: CreateSaleRequest) => createSale(input, adminKey),
+  });
 
   function unlock(event: FormEvent) {
     event.preventDefault();
@@ -46,17 +50,13 @@ export function AdminPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setFeedback(null);
-    setSubmitting(true);
     try {
-      const sale = await createSale(
-        {
-          productName,
-          totalStock: Number(totalStock),
-          startTime: new Date(startTime).toISOString(),
-          endTime: new Date(endTime).toISOString(),
-        },
-        adminKey,
-      );
+      const sale = await createSaleMutation.mutateAsync({
+        productName,
+        totalStock: Number(totalStock),
+        startTime: new Date(startTime).toISOString(),
+        endTime: new Date(endTime).toISOString(),
+      });
       setCreated(sale);
       setFeedback({ kind: 'success', message: 'Sale saved.' });
     } catch (err) {
@@ -75,8 +75,6 @@ export function AdminPage() {
               : 'Something went wrong. Please try again.',
         });
       }
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -153,8 +151,8 @@ export function AdminPage() {
           required
         />
 
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save sale'}
+        <button type="submit" disabled={createSaleMutation.isPending}>
+          {createSaleMutation.isPending ? 'Saving…' : 'Save sale'}
         </button>
 
         {feedback && (

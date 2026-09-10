@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "yarn@4.18.0",
   "workspaces": [
+    "common",
     "server",
     "frontend"
   ],
@@ -11,8 +12,8 @@
     "migrate:db": "yarn workspace server prisma migrate dev",
     "build": "yarn workspaces foreach -A -t run build",
     "lint": "yarn workspaces foreach -A -pi run lint",
-    "format": "prettier --write \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
+    "format": "prettier --write \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\" \"common/src/**/*.ts\"",
+    "format:check": "prettier --check \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\" \"common/src/**/*.ts\"",
     "test": "yarn workspace server run test",
     "prepare": "husky"
   },

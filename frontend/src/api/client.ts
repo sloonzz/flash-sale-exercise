@@ -1,10 +1,10 @@
 import type {
-  CreateSaleInput,
+  CreateSaleRequest,
   CreateSaleResponse,
   PurchaseResponse,
   SaleStatusResponse,
   SecuredResponse,
-} from './types.ts';
+} from 'common';
 
 export class ApiError extends Error {
   status: number;
@@ -69,7 +69,7 @@ export function checkSecured(
 }
 
 export function createSale(
-  input: CreateSaleInput,
+  input: CreateSaleRequest,
   adminKey: string,
 ): Promise<CreateSaleResponse> {
   return request<CreateSaleResponse>('/admin/sales', {

@@ -1,4 +1,4 @@
-import type { SaleStatus } from '../api/types.ts';
+import type { SaleStatus } from 'common';
 
 const STATUS_LABELS: Record<SaleStatus, string> = {
   upcoming: 'Upcoming',

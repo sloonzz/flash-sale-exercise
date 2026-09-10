@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { PurchaseResult } from 'common';
 import { ApiError, checkSecured, purchase } from '../api/client.ts';
-import type { PurchaseResult } from '../api/types.ts';
 import { useSaleStatus } from '../hooks/useSaleStatus.ts';
 import { formatDateTime, formatSaleStatus } from '../lib/format.ts';
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
+const SECURED_CHECK_DEBOUNCE_MS = 400;
 
 interface Feedback {
   kind: 'success' | 'warning' | 'error';
@@ -29,13 +31,23 @@ function feedbackForResult(result: PurchaseResult): Feedback {
   }
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
 export function BuyerPage() {
+  const queryClient = useQueryClient();
   const { saleStatus, loading, error: statusError, refresh } = useSaleStatus();
   const [userId, setUserId] = useState(
     () => localStorage.getItem(USER_ID_STORAGE_KEY) ?? '',
   );
-  const [secured, setSecured] = useState<boolean | null>(null);
-  const [purchasing, setPurchasing] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   useEffect(() => {
@@ -43,41 +55,34 @@ export function BuyerPage() {
   }, [userId]);
 
   const trimmedUserId = userId.trim();
+  const debouncedUserId = useDebouncedValue(
+    trimmedUserId,
+    SECURED_CHECK_DEBOUNCE_MS,
+  );
+  const isDebouncing = trimmedUserId !== debouncedUserId;
 
-  useEffect(() => {
-    if (!trimmedUserId) {
-      return;
-    }
+  const securedQuery = useQuery({
+    queryKey: ['secured', debouncedUserId],
+    queryFn: ({ signal }) => checkSecured(debouncedUserId, signal),
+    enabled: debouncedUserId.length > 0,
+  });
+  const secured = isDebouncing ? null : (securedQuery.data?.secured ?? null);
 
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const { secured: isSecured } = await checkSecured(
-          trimmedUserId,
-          controller.signal,
-        );
-        setSecured(isSecured);
-      } catch {
-        // Best-effort check; the buy attempt itself is the source of truth.
-      }
-    }, 400);
-
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [trimmedUserId]);
+  const purchaseMutation = useMutation({
+    mutationFn: (userId: string) => purchase(userId),
+  });
 
   async function handleBuy() {
     if (!trimmedUserId) return;
 
-    setPurchasing(true);
     setFeedback(null);
     try {
-      const { result } = await purchase(trimmedUserId);
+      const { result } = await purchaseMutation.mutateAsync(trimmedUserId);
       setFeedback(feedbackForResult(result));
       if (result === 'success' || result === 'already_purchased') {
-        setSecured(true);
+        queryClient.setQueryData(['secured', trimmedUserId], {
+          secured: true,
+        });
       }
       refresh();
     } catch (err) {
@@ -95,11 +100,10 @@ export function BuyerPage() {
               : 'Something went wrong. Please try again.',
         });
       }
-    } finally {
-      setPurchasing(false);
     }
   }
 
+  const purchasing = purchaseMutation.isPending;
   const canBuy =
     !loading &&
     !purchasing &&
@@ -144,7 +148,6 @@ export function BuyerPage() {
           onChange={(event) => {
             setUserId(event.target.value);
             setFeedback(null);
-            setSecured(null);
           }}
           placeholder="you@example.com"
           autoComplete="username"

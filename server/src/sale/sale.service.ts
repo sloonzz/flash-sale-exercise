@@ -1,14 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type {
+  CreateSaleBody,
+  PurchaseResult,
+  SaleStatus,
+  SaleStatusResponse,
+} from 'common';
 import { ReconciliationService } from '../reconciliation/reconciliation.service.ts';
 import type { SaleModel } from '../generated/prisma/models.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
-import type {
-  CreateSaleInput,
-  PurchaseResult,
-  SaleStatus,
-  SaleStatusResponse,
-} from './sale-types.ts';
 
 @Injectable()
 export class SaleService {
@@ -61,7 +61,7 @@ export class SaleService {
     return this.reservationService.isReserved(sale.id, userId);
   }
 
-  async createSale(input: CreateSaleInput): Promise<SaleModel> {
+  async createSale(input: CreateSaleBody): Promise<SaleModel> {
     const existing = await this.getCurrentSale();
     const sale = existing
       ? await this.prisma.sale.update({
