@@ -1,4 +1,4 @@
-import { REDIS_URL } from '../config/env.js';
+import { REDIS_URL } from '../config/env.ts';
 
 const { hostname, port, password } = new URL(REDIS_URL);
 

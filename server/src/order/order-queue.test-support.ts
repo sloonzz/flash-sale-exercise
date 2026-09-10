@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
-import { BULL_REDIS_CONNECTION } from './bull-connection.js';
+import { BULL_REDIS_CONNECTION } from './bull-connection.ts';
 import {
   PERSIST_ORDER_QUEUE,
   PersistOrderJobData,
-} from './persist-order-job.js';
+} from './persist-order-job.ts';
 
 export function createTestQueue(): Queue<PersistOrderJobData> {
   return new Queue<PersistOrderJobData>(

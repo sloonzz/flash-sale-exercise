@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { persistOrder } from './persist-order.processor.js';
+import { PrismaService } from '../prisma/prisma.service.ts';
+import { persistOrder } from './persist-order.processor.ts';
 
 describe('persistOrder', () => {
   const prisma = {

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { REDIS_URL } from '../config/env.js';
-import { OrderQueueProducer } from '../order/order-queue.producer.js';
-import { reservedUsersKey, stockKey } from './reservation-keys.js';
-import { ReservationService } from './reservation.service.js';
+import { REDIS_URL } from '../config/env.ts';
+import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { reservedUsersKey, stockKey } from './reservation-keys.ts';
+import { ReservationService } from './reservation.service.ts';
 
 describe('ReservationService (integration)', () => {
   const orderQueueProducer = {

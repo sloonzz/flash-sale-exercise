@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
-import { REDIS_URL } from '../config/env.js';
-import { createTestQueue } from './order-queue.test-support.js';
-import { OrderQueueProducer } from './order-queue.producer.js';
+import { REDIS_URL } from '../config/env.ts';
+import { createTestQueue } from './order-queue.test-support.ts';
+import { OrderQueueProducer } from './order-queue.producer.ts';
 
 describe('OrderQueueProducer (integration)', () => {
   const queue = createTestQueue();

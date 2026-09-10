@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { OrderModule } from './order/order.module.js';
-import { PrismaModule } from './prisma/prisma.module.js';
-import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
-import { ReservationModule } from './reservation/reservation.module.js';
+import { AppController } from './app.controller.ts';
+import { AppService } from './app.service.ts';
+import { OrderModule } from './order/order.module.ts';
+import { PrismaModule } from './prisma/prisma.module.ts';
+import { ReconciliationModule } from './reconciliation/reconciliation.module.ts';
+import { ReservationModule } from './reservation/reservation.module.ts';
 
 @Module({
   imports: [PrismaModule, OrderModule, ReservationModule, ReconciliationModule],
