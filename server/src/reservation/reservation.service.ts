@@ -6,6 +6,7 @@ import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { RESERVE_SCRIPT } from './reserve-script.ts';
 import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
 
+// IMPORTANT: Always sync with reserve-script.ts Lua script
 export type ReservationResult = 'success' | 'already_purchased' | 'sold_out';
 
 @Injectable()

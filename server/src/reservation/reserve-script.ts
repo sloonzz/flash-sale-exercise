@@ -1,4 +1,5 @@
 // KEYS[1] = stock key, KEYS[2] = reserved-users key, ARGV[1] = userId.
+// IMPORTANT: Always sync with ReservationResult type
 export const RESERVE_SCRIPT = `
 if redis.call('SISMEMBER', KEYS[2], ARGV[1]) == 1 then
   return 'already_purchased'
