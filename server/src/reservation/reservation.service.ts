@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_URL } from '../config/env.js';
-import { OrderQueueProducer } from '../order/order-queue.producer.js';
-import { reservedUsersKey, stockKey } from './reservation-keys.js';
-import { RESERVE_SCRIPT } from './reserve-script.js';
-import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.js';
+import { REDIS_URL } from '../config/env.ts';
+import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { reservedUsersKey, stockKey } from './reservation-keys.ts';
+import { RESERVE_SCRIPT } from './reserve-script.ts';
+import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
 
 export type ReservationResult = 'success' | 'already_purchased' | 'sold_out';
 

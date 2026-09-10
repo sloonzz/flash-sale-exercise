@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import {
   PERSIST_ORDER_QUEUE,
   PersistOrderJobData,
-} from './persist-order-job.js';
+} from './persist-order-job.ts';
 
 const PERSIST_ORDER_ATTEMPTS = 100_000;
 const PERSIST_ORDER_BACKOFF_MS = 5_000;

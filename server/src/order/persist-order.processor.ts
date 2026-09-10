@@ -1,5 +1,5 @@
-import { PrismaService } from '../prisma/prisma.service.js';
-import { PersistOrderJobData } from './persist-order-job.js';
+import { PrismaService } from '../prisma/prisma.service.ts';
+import { PersistOrderJobData } from './persist-order-job.ts';
 
 // Upsert, not create: a job retried after a crash between the Postgres write
 // and the BullMQ ack must land without throwing on the unique constraint.

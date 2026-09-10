@@ -1,12 +1,12 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { PrismaService } from '../prisma/prisma.service.ts';
 import {
   PERSIST_ORDER_QUEUE,
   PersistOrderJobData,
-} from './persist-order-job.js';
-import { persistOrder } from './persist-order.processor.js';
+} from './persist-order-job.ts';
+import { persistOrder } from './persist-order.processor.ts';
 
 @Processor(PERSIST_ORDER_QUEUE)
 export class OrderQueueConsumer extends WorkerHost {
