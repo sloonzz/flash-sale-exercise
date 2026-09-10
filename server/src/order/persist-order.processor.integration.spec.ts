@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { persistOrder } from './persist-order.processor.js';
+import { PrismaService } from '../prisma/prisma.service.ts';
+import { persistOrder } from './persist-order.processor.ts';
 
 describe('persistOrder (integration)', () => {
   const prisma = new PrismaService();

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { OrderQueueProducer } from '../order/order-queue.producer.js';
-import { reservedUsersKey, stockKey } from './reservation-keys.js';
-import { RESERVE_SCRIPT } from './reserve-script.js';
-import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.js';
-import { ReservationService } from './reservation.service.js';
+import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { reservedUsersKey, stockKey } from './reservation-keys.ts';
+import { RESERVE_SCRIPT } from './reserve-script.ts';
+import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
+import { ReservationService } from './reservation.service.ts';
 
 const { mockRedis } = vi.hoisted(() => ({
   mockRedis: {

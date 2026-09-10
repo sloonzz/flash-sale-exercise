@@ -8,12 +8,12 @@ import {
   it,
   vi,
 } from 'vitest';
-import { REDIS_URL } from '../config/env.js';
-import { OrderQueueProducer } from '../order/order-queue.producer.js';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.js';
-import { ReservationService } from '../reservation/reservation.service.js';
-import { ReconciliationService } from './reconciliation.service.js';
+import { REDIS_URL } from '../config/env.ts';
+import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { PrismaService } from '../prisma/prisma.service.ts';
+import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.ts';
+import { ReservationService } from '../reservation/reservation.service.ts';
+import { ReconciliationService } from './reconciliation.service.ts';
 
 describe('ReconciliationService (integration)', () => {
   const prisma = new PrismaService();

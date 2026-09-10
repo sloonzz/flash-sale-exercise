@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { OrderQueueProducer } from './order-queue.producer.js';
-import { PersistOrderJobData } from './persist-order-job.js';
+import { OrderQueueProducer } from './order-queue.producer.ts';
+import { PersistOrderJobData } from './persist-order-job.ts';
 
 describe('OrderQueueProducer', () => {
   const queue = {
