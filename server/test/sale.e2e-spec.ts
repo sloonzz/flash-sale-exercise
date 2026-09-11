@@ -28,6 +28,10 @@ describe('Sale API (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
+    // Bind a real port up front: supertest lazily listens on first request
+    // otherwise, and concurrent requests racing that lazy bind intermittently
+    // reset each other's connections.
+    await app.listen(0);
     prisma = app.get(PrismaService);
   });
 
@@ -411,6 +415,54 @@ describe('Sale API (e2e)', () => {
         .expect(200);
 
       expect(response.body.secured).toBe(false);
+    });
+
+    it('grants exactly `stock` successes under concurrent purchase requests, with zero oversell surviving into the durable Order count', async () => {
+      const totalStock = 4;
+      // Stays comfortably under the ThrottlerGuard's 20 req/1000ms limit on
+      // /purchase so this burst itself never gets rate-limited.
+      const attempts = 12;
+      const saleId = await createSale({ totalStock });
+
+      // The ThrottlerGuard's counter is shared across every /purchase call in
+      // this file (one app instance for the whole suite). Let its 1000ms
+      // window fully lapse before firing the burst so earlier tests' hits
+      // never eat into this test's budget.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      const userIds = Array.from(
+        { length: attempts },
+        (_, i) => `concurrent-user-${i}`,
+      );
+
+      const responses = await Promise.all(
+        userIds.map((userId) =>
+          request(app.getHttpServer())
+            .post('/purchase')
+            .send({ userId, saleId })
+            .expect(201),
+        ),
+      );
+
+      const results = responses.map((response) => response.body.result);
+      const successfulUserIds = userIds.filter(
+        (_, i) => results[i] === 'success',
+      );
+
+      expect(successfulUserIds).toHaveLength(totalStock);
+      expect(new Set(successfulUserIds).size).toBe(totalStock);
+      expect(results.filter((result) => result === 'sold_out')).toHaveLength(
+        attempts - totalStock,
+      );
+
+      await expect(redis.get(stockKey(saleId))).resolves.toBe('0');
+
+      await Promise.all(
+        successfulUserIds.map((userId) => waitForOrder(saleId, userId)),
+      );
+      await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(
+        totalStock,
+      );
     });
   });
 });
