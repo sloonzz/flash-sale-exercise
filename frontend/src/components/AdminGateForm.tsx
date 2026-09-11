@@ -1,9 +1,9 @@
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation } from '@tanstack/react-query';
-import { adminLogin, ApiError } from '../api/client.ts';
+import { ApiError } from '../api/client.ts';
+import { getMutationFeedback } from '../api/feedback.ts';
+import { useLoginMutation } from '../api/mutations/useLoginMutation.ts';
 
 const adminKeyFormSchema = z.object({
   adminKey: z
@@ -13,55 +13,47 @@ const adminKeyFormSchema = z.object({
 });
 type AdminKeyFormValues = z.infer<typeof adminKeyFormSchema>;
 
-interface Feedback {
-  kind: 'error';
-  message: string;
-}
-
 interface AdminGateFormProps {
-  onUnlock: (adminKey: string) => void;
+  onLogin: (adminKey: string) => void;
 }
 
-export function AdminGateForm({ onUnlock }: AdminGateFormProps) {
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-
+export function AdminGateForm({ onLogin }: AdminGateFormProps) {
   const gateForm = useForm<AdminKeyFormValues>({
     resolver: zodResolver(adminKeyFormSchema),
     defaultValues: { adminKey: '' },
   });
 
-  const loginMutation = useMutation({
-    mutationFn: (key: string) => adminLogin(key),
+  const loginMutation = useLoginMutation();
+
+  const invalidKey =
+    loginMutation.error instanceof ApiError &&
+    (loginMutation.error.status === 401 || loginMutation.error.status === 403);
+
+  const feedback = getMutationFeedback(loginMutation, {
+    suppressError: () => invalidKey,
   });
 
-  async function unlock(values: AdminKeyFormValues) {
-    setFeedback(null);
-    try {
-      const { adminKey } = await loginMutation.mutateAsync(values.adminKey);
-      onUnlock(adminKey);
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.status === 401 || err.status === 403)
-      ) {
-        gateForm.setError('adminKey', { message: 'Invalid admin key.' });
-      } else {
-        setFeedback({
-          kind: 'error',
-          message:
-            err instanceof ApiError
-              ? err.message
-              : 'Something went wrong. Please try again.',
-        });
-      }
-    }
+  function login(values: AdminKeyFormValues) {
+    loginMutation.mutate(values.adminKey, {
+      onSuccess: ({ adminKey }) => {
+        onLogin(adminKey);
+      },
+      onError: (err) => {
+        if (
+          err instanceof ApiError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          gateForm.setError('adminKey', { message: 'Invalid admin key.' });
+        }
+      },
+    });
   }
 
   return (
     <>
       <form
         className="admin-gate"
-        onSubmit={gateForm.handleSubmit(unlock)}
+        onSubmit={gateForm.handleSubmit(login)}
         noValidate
       >
         <label htmlFor="adminKey">Admin key</label>
@@ -77,7 +69,7 @@ export function AdminGateForm({ onUnlock }: AdminGateFormProps) {
           </p>
         )}
         <button type="submit" disabled={loginMutation.isPending}>
-          {loginMutation.isPending ? 'Checking…' : 'Unlock'}
+          {loginMutation.isPending ? 'Checking…' : 'Login'}
         </button>
       </form>
 

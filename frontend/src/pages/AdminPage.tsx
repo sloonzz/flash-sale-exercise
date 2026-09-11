@@ -9,12 +9,12 @@ export function AdminPage() {
     () => localStorage.getItem(ADMIN_KEY_STORAGE_KEY) ?? '',
   );
 
-  function unlock(key: string) {
+  function login(key: string) {
     localStorage.setItem(ADMIN_KEY_STORAGE_KEY, key);
     setAdminKey(key);
   }
 
-  function lock() {
+  function logout() {
     localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
     setAdminKey('');
   }
@@ -23,7 +23,7 @@ export function AdminPage() {
     return (
       <section className="panel">
         <h1>Admin</h1>
-        <AdminGateForm onUnlock={unlock} />
+        <AdminGateForm onLogin={login} />
       </section>
     );
   }
@@ -32,12 +32,12 @@ export function AdminPage() {
     <section className="panel">
       <div className="admin-header">
         <h1>Admin</h1>
-        <button type="button" className="link-button" onClick={lock}>
-          Lock
+        <button type="button" className="link-button" onClick={logout}>
+          Logout
         </button>
       </div>
 
-      <AdminSaleForm adminKey={adminKey} onInvalidKey={lock} />
+      <AdminSaleForm adminKey={adminKey} />
     </section>
   );
 }

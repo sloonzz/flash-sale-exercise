@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import type { PurchaseResult } from 'common';
-import { ApiError, checkSecured, purchase } from '../api/client.ts';
-import { useSaleStatus } from '../hooks/useSaleStatus.ts';
+import { ApiError } from '../api/client.ts';
+import { getMutationFeedback, type Feedback } from '../api/feedback.ts';
+import { useSaleStatusQuery } from '../api/queries/useSaleStatusQuery.ts';
+import { useSecuredQuery } from '../api/queries/useSecuredQuery.ts';
+import { usePurchaseMutation } from '../api/mutations/usePurchaseMutation.ts';
 import { formatDateTime, formatSaleStatus } from '../lib/format.ts';
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
 const SECURED_CHECK_DEBOUNCE_MS = 400;
-
-interface Feedback {
-  kind: 'success' | 'warning' | 'error';
-  message: string;
-}
 
 function feedbackForResult(result: PurchaseResult): Feedback {
   switch (result) {
@@ -44,11 +42,19 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 
 export function BuyerPage() {
   const queryClient = useQueryClient();
-  const { saleStatus, loading, error: statusError, refresh } = useSaleStatus();
+  const saleStatusQuery = useSaleStatusQuery();
+  const saleStatus = saleStatusQuery.data;
+  const loading = saleStatusQuery.isPending;
+  function getStatusError(): string | null {
+    if (!saleStatusQuery.isError) return null;
+    return saleStatusQuery.error instanceof ApiError
+      ? saleStatusQuery.error.message
+      : 'Failed to load sale status';
+  }
+  const statusError = getStatusError();
   const [userId, setUserId] = useState(
     () => localStorage.getItem(USER_ID_STORAGE_KEY) ?? '',
   );
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   useEffect(() => {
     localStorage.setItem(USER_ID_STORAGE_KEY, userId);
@@ -61,46 +67,31 @@ export function BuyerPage() {
   );
   const isDebouncing = trimmedUserId !== debouncedUserId;
 
-  const securedQuery = useQuery({
-    queryKey: ['secured', debouncedUserId],
-    queryFn: ({ signal }) => checkSecured(debouncedUserId, signal),
-    enabled: debouncedUserId.length > 0,
-  });
+  const securedQuery = useSecuredQuery(debouncedUserId);
   const secured = isDebouncing ? null : (securedQuery.data?.secured ?? null);
 
-  const purchaseMutation = useMutation({
-    mutationFn: (userId: string) => purchase(userId),
+  const purchaseMutation = usePurchaseMutation();
+
+  const feedback = getMutationFeedback(purchaseMutation, {
+    onSuccess: (data) => feedbackForResult(data.result),
+    errorOverrides: {
+      429: 'Too many attempts — please slow down and try again.',
+    },
   });
 
-  async function handleBuy() {
+  function handleBuy() {
     if (!trimmedUserId) return;
 
-    setFeedback(null);
-    try {
-      const { result } = await purchaseMutation.mutateAsync(trimmedUserId);
-      setFeedback(feedbackForResult(result));
-      if (result === 'success' || result === 'already_purchased') {
-        queryClient.setQueryData(['secured', trimmedUserId], {
-          secured: true,
-        });
-      }
-      refresh();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        setFeedback({
-          kind: 'error',
-          message: 'Too many attempts — please slow down and try again.',
-        });
-      } else {
-        setFeedback({
-          kind: 'error',
-          message:
-            err instanceof ApiError
-              ? err.message
-              : 'Something went wrong. Please try again.',
-        });
-      }
-    }
+    purchaseMutation.mutate(trimmedUserId, {
+      onSuccess: ({ result }) => {
+        if (result === 'success' || result === 'already_purchased') {
+          queryClient.setQueryData(['secured', trimmedUserId], {
+            secured: true,
+          });
+        }
+        saleStatusQuery.refetch();
+      },
+    });
   }
 
   const purchasing = purchaseMutation.isPending;
@@ -147,7 +138,7 @@ export function BuyerPage() {
           value={userId}
           onChange={(event) => {
             setUserId(event.target.value);
-            setFeedback(null);
+            purchaseMutation.reset();
           }}
           placeholder="you@example.com"
           autoComplete="username"

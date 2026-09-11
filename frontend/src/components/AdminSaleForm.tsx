@@ -1,14 +1,9 @@
-import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation } from '@tanstack/react-query';
-import {
-  createSaleBodySchema,
-  type CreateSaleBody,
-  type CreateSaleResponse,
-} from 'common';
-import { ApiError, createSale } from '../api/client.ts';
+import { createSaleBodySchema, type CreateSaleBody } from 'common';
+import { getMutationFeedback } from '../api/feedback.ts';
+import { useCreateSaleMutation } from '../api/mutations/useCreateSaleMutation.ts';
 import { toDatetimeLocalValue } from '../lib/format.ts';
 
 type SaleFormValues = z.input<typeof createSaleBodySchema>;
@@ -24,61 +19,32 @@ function getDefaultSaleTimes() {
   };
 }
 
-interface Feedback {
-  kind: 'success' | 'error';
-  message: string;
-}
-
 interface AdminSaleFormProps {
   adminKey: string;
-  onInvalidKey: () => void;
 }
 
-export function AdminSaleForm({ adminKey, onInvalidKey }: AdminSaleFormProps) {
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [created, setCreated] = useState<CreateSaleResponse | null>(null);
-
+export function AdminSaleForm({ adminKey }: AdminSaleFormProps) {
   const saleForm = useForm<SaleFormValues, unknown, CreateSaleBody>({
     resolver: zodResolver(createSaleBodySchema),
     defaultValues: { productName: '', ...getDefaultSaleTimes() },
   });
 
-  const createSaleMutation = useMutation({
-    mutationFn: (input: CreateSaleBody) =>
-      createSale(
-        {
-          productName: input.productName,
-          totalStock: input.totalStock,
-          startTime: input.startTime.toISOString(),
-          endTime: input.endTime.toISOString(),
-        },
-        adminKey,
-      ),
+  const createSaleMutation = useCreateSaleMutation();
+
+  const feedback = getMutationFeedback(createSaleMutation, {
+    onSuccess: () => ({ kind: 'success', message: 'Sale saved.' }),
   });
 
-  async function submitSale(values: CreateSaleBody) {
-    setFeedback(null);
-    try {
-      const sale = await createSaleMutation.mutateAsync(values);
-      setCreated(sale);
-      setFeedback({ kind: 'success', message: 'Sale saved.' });
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        (err.status === 401 || err.status === 403)
-      ) {
-        setFeedback({ kind: 'error', message: 'Invalid admin key.' });
-        onInvalidKey();
-      } else {
-        setFeedback({
-          kind: 'error',
-          message:
-            err instanceof ApiError
-              ? err.message
-              : 'Something went wrong. Please try again.',
-        });
-      }
-    }
+  function submitSale(values: CreateSaleBody) {
+    createSaleMutation.mutate({
+      input: {
+        productName: values.productName,
+        totalStock: values.totalStock,
+        startTime: values.startTime.toISOString(),
+        endTime: values.endTime.toISOString(),
+      },
+      adminKey,
+    });
   }
 
   const saleErrors = saleForm.formState.errors;
@@ -144,9 +110,10 @@ export function AdminSaleForm({ adminKey, onInvalidKey }: AdminSaleFormProps) {
         <p className={`banner banner-${feedback.kind}`}>{feedback.message}</p>
       )}
 
-      {created && (
+      {createSaleMutation.data && (
         <p className="admin-created">
-          Saved <strong>{created.product}</strong> — {created.totalStock} units.
+          Saved <strong>{createSaleMutation.data.product}</strong> —{' '}
+          {createSaleMutation.data.totalStock} units.
         </p>
       )}
     </form>

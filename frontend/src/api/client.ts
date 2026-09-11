@@ -1,12 +1,3 @@
-import type {
-  AdminLoginResponse,
-  CreateSaleRequest,
-  CreateSaleResponse,
-  PurchaseResponse,
-  SaleStatusResponse,
-  SecuredResponse,
-} from 'common';
-
 export class ApiError extends Error {
   status: number;
 
@@ -19,7 +10,7 @@ export class ApiError extends Error {
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -47,44 +38,4 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
-}
-
-export function getSaleStatus(
-  signal?: AbortSignal,
-): Promise<SaleStatusResponse> {
-  return request<SaleStatusResponse>('/sale/status', { signal });
-}
-
-export function purchase(userId: string): Promise<PurchaseResponse> {
-  return request<PurchaseResponse>('/purchase', {
-    method: 'POST',
-    body: JSON.stringify({ userId }),
-  });
-}
-
-export function checkSecured(
-  userId: string,
-  signal?: AbortSignal,
-): Promise<SecuredResponse> {
-  return request<SecuredResponse>(`/purchase/${encodeURIComponent(userId)}`, {
-    signal,
-  });
-}
-
-export function adminLogin(adminKey: string): Promise<AdminLoginResponse> {
-  return request<AdminLoginResponse>('/admin/login', {
-    method: 'POST',
-    headers: { 'x-admin-key': adminKey },
-  });
-}
-
-export function createSale(
-  input: CreateSaleRequest,
-  adminKey: string,
-): Promise<CreateSaleResponse> {
-  return request<CreateSaleResponse>('/admin/sales', {
-    method: 'POST',
-    headers: { 'x-admin-key': adminKey },
-    body: JSON.stringify(input),
-  });
 }
