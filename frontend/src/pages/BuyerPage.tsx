@@ -29,11 +29,10 @@ function feedbackForResult(result: PurchaseResult): Feedback {
       return { kind: 'warning', message: 'This sale has ended.' };
     case 'not_active':
       return { kind: 'warning', message: "This sale isn't active yet." };
-    case 'stale_sale':
+    case 'invalid_sale':
       return {
         kind: 'warning',
-        message:
-          'This sale has changed — please check the details and try again.',
+        message: 'Invalid sale.',
       };
   }
 }

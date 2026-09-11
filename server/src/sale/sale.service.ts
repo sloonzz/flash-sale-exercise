@@ -58,7 +58,7 @@ export class SaleService {
       return 'not_active';
     }
     if (sale.id !== saleId) {
-      return 'stale_sale';
+      return 'invalid_sale';
     }
 
     switch (this.classifyWindow(sale)) {

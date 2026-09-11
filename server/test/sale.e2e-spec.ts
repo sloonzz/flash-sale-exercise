@@ -390,7 +390,7 @@ describe('Sale API (e2e)', () => {
         .expect(400);
     });
 
-    it('rejects as stale_sale when the sale id no longer matches the current sale', async () => {
+    it('rejects as invalid_sale when the sale id no longer matches the current sale', async () => {
       await createSale();
 
       const response = await request(app.getHttpServer())
@@ -398,7 +398,7 @@ describe('Sale API (e2e)', () => {
         .send({ userId: 'user-1', saleId: 'not-the-current-sale' })
         .expect(201);
 
-      expect(response.body.result).toBe('stale_sale');
+      expect(response.body.result).toBe('invalid_sale');
     });
 
     it('reports secured: false for a user who has not purchased', async () => {

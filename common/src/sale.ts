@@ -16,7 +16,7 @@ export type PurchaseResult =
   | 'sold_out'
   | 'ended'
   | 'not_active'
-  | 'stale_sale';
+  | 'invalid_sale';
 
 export interface PurchaseResponse {
   result: PurchaseResult;

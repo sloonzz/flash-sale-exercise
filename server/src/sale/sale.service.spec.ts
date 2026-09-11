@@ -203,14 +203,14 @@ describe('SaleService', () => {
       );
     });
 
-    it('rejects as stale_sale when the caller purchases against a sale that is no longer current', async () => {
+    it('rejects as invalid_sale when the caller purchases against a sale that is no longer current', async () => {
       const current = makeSale();
       vi.mocked(prisma.sale.findMany).mockResolvedValue([current] as never);
       vi.mocked(reservationService.getStock).mockResolvedValue(5);
 
       await expect(
         saleService.purchase('user-1', 'a-stale-sale-id'),
-      ).resolves.toBe('stale_sale');
+      ).resolves.toBe('invalid_sale');
       expect(reservationService.reserve).not.toHaveBeenCalled();
     });
   });
