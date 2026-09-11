@@ -20,6 +20,7 @@
     "test:unit": "yarn workspaces foreach -A -pi run test:unit",
     "test:integration": "yarn workspaces foreach -A -pi run test:integration",
     "test:e2e": "yarn workspaces foreach -A -pi run test:e2e",
+    "test:fault-tolerance": "yarn workspaces foreach -A -pi run test:fault-tolerance",
     "prepare": "husky"
   },
   "devDependencies": {
