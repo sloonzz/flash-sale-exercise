@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
   purchaseBodySchema,
@@ -24,11 +32,12 @@ export class PurchaseController {
     return { result };
   }
 
-  @Get(':saleId/:userId')
+  @Get(':saleId')
   async checkSecured(
     @Param('saleId', new ZodValidationPipe(saleIdSchema)) saleId: string,
-    @Param('userId', new ZodValidationPipe(userIdSchema)) userId: string,
+    @Headers('x-user-id') rawUserId: string,
   ): Promise<SecuredResponse> {
+    const userId = new ZodValidationPipe(userIdSchema).transform(rawUserId);
     const secured = await this.saleService.hasSecured(userId, saleId);
     return { secured };
   }

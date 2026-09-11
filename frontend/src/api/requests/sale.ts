@@ -26,8 +26,8 @@ export function checkSecured(
   saleId: string,
   signal?: AbortSignal,
 ): Promise<SecuredResponse> {
-  return request<SecuredResponse>(
-    `/purchase/${encodeURIComponent(saleId)}/${encodeURIComponent(userId)}`,
-    { signal },
-  );
+  return request<SecuredResponse>(`/purchase/${encodeURIComponent(saleId)}`, {
+    signal,
+    headers: { 'x-user-id': userId },
+  });
 }

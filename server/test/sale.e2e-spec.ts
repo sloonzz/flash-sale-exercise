@@ -292,7 +292,7 @@ describe('Sale API (e2e)', () => {
     });
   });
 
-  describe('POST /purchase + GET /purchase/:saleId/:userId', () => {
+  describe('POST /purchase + GET /purchase/:saleId', () => {
     it('succeeds for a first-time purchase and reflects it in the check-secured read', async () => {
       const saleId = await createSale();
 
@@ -303,7 +303,8 @@ describe('Sale API (e2e)', () => {
       expect(purchaseResponse.body.result).toBe('success');
 
       const checkResponse = await request(app.getHttpServer())
-        .get(`/purchase/${saleId}/user-1`)
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'user-1')
         .expect(200);
       expect(checkResponse.body.secured).toBe(true);
 
@@ -405,7 +406,8 @@ describe('Sale API (e2e)', () => {
       const saleId = await createSale();
 
       const response = await request(app.getHttpServer())
-        .get(`/purchase/${saleId}/never-bought`)
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'never-bought')
         .expect(200);
 
       expect(response.body.secured).toBe(false);
