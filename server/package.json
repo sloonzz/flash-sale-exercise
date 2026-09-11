@@ -24,6 +24,7 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "test:stress": "vitest run --config ./vitest.config.stress.ts",
     "migrate:e2e-db": "DOTENV_CONFIG_PATH=.env.e2e prisma migrate deploy"
   },
   "dependencies": {
@@ -48,11 +49,13 @@
     "@nestjs/mau": "^0.2.6",
     "@nestjs/schematics": "^12.0.0",
     "@nestjs/testing": "^12.0.1",
+    "@types/autocannon": "^7.12.7",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.2",
+    "autocannon": "^8.0.0",
     "oxlint": "^1.58.0",
     "prettier": "^3.4.2",
     "prisma": "^7.10.0",
