@@ -17,12 +17,14 @@ describe('createRedisClient', () => {
     vi.clearAllMocks();
   });
 
-  it('connects to the configured Redis URL', async () => {
+  it('connects to the configured Redis URL with a bounded command timeout', async () => {
     const { createRedisClient } = await import('./redis-client.factory.ts');
 
     createRedisClient();
 
-    expect(RedisMock).toHaveBeenCalledWith('redis://localhost:6379');
+    expect(RedisMock).toHaveBeenCalledWith('redis://localhost:6379', {
+      commandTimeout: 3000,
+    });
   });
 
   it('registers an error listener so a connection blip cannot crash the process', async () => {

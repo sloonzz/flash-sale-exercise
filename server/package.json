@@ -25,6 +25,7 @@
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "test:performance": "vitest run --config ./vitest.config.performance.ts",
+    "test:fault-tolerance": "vitest run --config ./vitest.config.fault-tolerance.ts",
     "migrate:e2e-db": "DOTENV_CONFIG_PATH=.env.e2e prisma migrate deploy"
   },
   "dependencies": {
