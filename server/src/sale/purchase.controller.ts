@@ -1,10 +1,23 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import {
+  purchaseBodySchema,
+  saleIdSchema,
+  userIdSchema,
+  type PurchaseBody,
+  type PurchaseResponse,
+  type SecuredResponse,
+} from 'common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts';
 import { SaleService } from './sale.service.ts';
-import { purchaseBodySchema, userIdSchema } from './sale.schemas.ts';
-import type { PurchaseBody } from './sale.schemas.ts';
-import type { PurchaseResult } from './sale-types.ts';
 
 @Controller('purchase')
 export class PurchaseController {
@@ -14,16 +27,18 @@ export class PurchaseController {
   @UseGuards(ThrottlerGuard)
   async purchase(
     @Body(new ZodValidationPipe(purchaseBodySchema)) body: PurchaseBody,
-  ): Promise<{ result: PurchaseResult }> {
-    const result = await this.saleService.purchase(body.userId);
+  ): Promise<PurchaseResponse> {
+    const result = await this.saleService.purchase(body.userId, body.saleId);
     return { result };
   }
 
-  @Get(':userId')
+  @Get(':saleId')
   async checkSecured(
-    @Param('userId', new ZodValidationPipe(userIdSchema)) userId: string,
-  ): Promise<{ secured: boolean }> {
-    const secured = await this.saleService.hasSecured(userId);
+    @Param('saleId', new ZodValidationPipe(saleIdSchema)) saleId: string,
+    @Headers('x-user-id') rawUserId: string,
+  ): Promise<SecuredResponse> {
+    const userId = new ZodValidationPipe(userIdSchema).transform(rawUserId);
+    const secured = await this.saleService.hasSecured(userId, saleId);
     return { secured };
   }
 }

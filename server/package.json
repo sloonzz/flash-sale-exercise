@@ -16,12 +16,15 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "oxlint src/ test/",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
-    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "migrate:e2e-db": "DOTENV_CONFIG_PATH=.env.e2e prisma migrate deploy"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",
@@ -32,6 +35,7 @@
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "bullmq": "^6.3.4",
+    "common": "workspace:^",
     "dotenv": "^17.4.2",
     "ioredis": "^6.0.0",
     "pg": "^8.23.0",

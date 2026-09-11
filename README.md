@@ -18,7 +18,13 @@ This is a Yarn workspaces monorepo:
    yarn
    ```
 
-2. Run the app. This starts the Docker infra (Postgres and Redis) and the API and frontend together:
+2. Build the shared `common` package and generate the Prisma client. Both are gitignored build outputs, so this is needed before `common` will resolve or the server will typecheck/run:
+
+   ```sh
+   yarn generate
+   ```
+
+3. Run the app. This starts the Docker infra (Postgres and Redis) and the API and frontend together:
 
    ```sh
    yarn dev
@@ -26,7 +32,7 @@ This is a Yarn workspaces monorepo:
 
    Or run just one, from the repo root: `yarn workspace server run dev` / `yarn workspace frontend run dev`.
 
-3. Apply database migrations (first time, and whenever the schema changes):
+4. Apply database migrations (first time, and whenever the schema changes):
 
    ```sh
    yarn migrate:db

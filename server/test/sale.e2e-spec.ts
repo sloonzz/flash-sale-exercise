@@ -49,6 +49,7 @@ describe('Sale API (e2e)', () => {
 
   async function createSale(
     overrides: {
+      productName?: string;
       totalStock?: number;
       startTime?: Date;
       endTime?: Date;
@@ -59,7 +60,7 @@ describe('Sale API (e2e)', () => {
       .post('/admin/sales')
       .set('x-admin-key', ADMIN_KEY)
       .send({
-        productName: 'Test Widget',
+        productName: overrides.productName ?? 'Test Widget',
         totalStock: overrides.totalStock ?? 10,
         startTime: (
           overrides.startTime ?? new Date(now - 60_000)
@@ -117,8 +118,11 @@ describe('Sale API (e2e)', () => {
       await expect(redis.get(stockKey(saleId))).resolves.toBe('7');
     });
 
-    it('reconfigures the existing sale row rather than creating a second one', async () => {
-      const firstId = await createSale({ totalStock: 5 });
+    it('appends a new sale row instead of overwriting the previous one, and the earliest open sale becomes current', async () => {
+      const firstId = await createSale({
+        totalStock: 5,
+        startTime: new Date(Date.now() - 120_000),
+      });
 
       const response = await request(app.getHttpServer())
         .post('/admin/sales')
@@ -130,9 +134,123 @@ describe('Sale API (e2e)', () => {
           endTime: new Date(Date.now() + 60_000).toISOString(),
         })
         .expect(201);
+      saleIds.push(response.body.id);
 
-      expect(response.body.id).toBe(firstId);
-      await expect(prisma.sale.count()).resolves.toBe(1);
+      expect(response.body.id).not.toBe(firstId);
+      await expect(
+        prisma.sale.count({
+          where: { id: { in: [firstId, response.body.id] } },
+        }),
+      ).resolves.toBe(2);
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Test Widget');
+    });
+
+    it('treats the earliest open row as current, even when a later row was created first', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/sales')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({
+          productName: 'Later Start',
+          totalStock: 10,
+          startTime: new Date(Date.now() - 30_000).toISOString(),
+          endTime: new Date(Date.now() + 60_000).toISOString(),
+        })
+        .expect(201)
+        .then((response) => saleIds.push(response.body.id));
+
+      await request(app.getHttpServer())
+        .post('/admin/sales')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({
+          productName: 'Earlier Start',
+          totalStock: 10,
+          startTime: new Date(Date.now() - 90_000).toISOString(),
+          endTime: new Date(Date.now() + 60_000).toISOString(),
+        })
+        .expect(201)
+        .then((response) => saleIds.push(response.body.id));
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Earlier Start');
+    });
+
+    it('skips a sold-out earlier sale in favor of the next open one', async () => {
+      const soldOutId = await createSale({
+        productName: 'Sold Out',
+        totalStock: 1,
+        startTime: new Date(Date.now() - 120_000),
+      });
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ userId: 'user-1', saleId: soldOutId })
+        .expect(201);
+      await waitForOrder(soldOutId, 'user-1');
+
+      await createSale({
+        productName: 'Open',
+        totalStock: 10,
+        startTime: new Date(Date.now() - 60_000),
+      });
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Open');
+      expect(status.body.status).toBe('active');
+    });
+
+    it('falls back to the latest start time when every sale is sold out or ended', async () => {
+      await createSale({
+        totalStock: 10,
+        startTime: new Date(Date.now() - 120_000),
+        endTime: new Date(Date.now() - 60_000),
+      });
+      const openId = await createSale({
+        totalStock: 1,
+        startTime: new Date(Date.now() - 30_000),
+      });
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ userId: 'user-1', saleId: openId })
+        .expect(201);
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.status).toBe('soldout');
+    });
+  });
+
+  describe('POST /admin/login', () => {
+    it('rejects a request with no x-admin-key header', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/login')
+        .send()
+        .expect(401);
+    });
+
+    it('rejects a request with the wrong x-admin-key header', async () => {
+      await request(app.getHttpServer())
+        .post('/admin/login')
+        .set('x-admin-key', 'wrong-key')
+        .send()
+        .expect(403);
+    });
+
+    it('returns the admin key when it matches', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/admin/login')
+        .set('x-admin-key', ADMIN_KEY)
+        .send()
+        .expect(201);
+
+      expect(response.body).toEqual({ adminKey: ADMIN_KEY });
     });
   });
 
@@ -174,18 +292,19 @@ describe('Sale API (e2e)', () => {
     });
   });
 
-  describe('POST /purchase + GET /purchase/:userId', () => {
+  describe('POST /purchase + GET /purchase/:saleId', () => {
     it('succeeds for a first-time purchase and reflects it in the check-secured read', async () => {
       const saleId = await createSale();
 
       const purchaseResponse = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
       expect(purchaseResponse.body.result).toBe('success');
 
       const checkResponse = await request(app.getHttpServer())
-        .get('/purchase/user-1')
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'user-1')
         .expect(200);
       expect(checkResponse.body.secured).toBe(true);
 
@@ -196,12 +315,12 @@ describe('Sale API (e2e)', () => {
       const saleId = await createSale();
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('already_purchased');
@@ -213,12 +332,12 @@ describe('Sale API (e2e)', () => {
       const saleId = await createSale({ totalStock: 1 });
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-2' })
+        .send({ userId: 'user-2', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('sold_out');
@@ -227,44 +346,68 @@ describe('Sale API (e2e)', () => {
     });
 
     it('rejects before the sale has started, without granting a reservation', async () => {
-      await createSale({
+      const saleId = await createSale({
         startTime: new Date(Date.now() + 60_000),
         endTime: new Date(Date.now() + 120_000),
       });
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('not_active');
     });
 
     it('rejects after the sale has ended', async () => {
-      await createSale({
+      const saleId = await createSale({
         startTime: new Date(Date.now() - 120_000),
         endTime: new Date(Date.now() - 60_000),
       });
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('ended');
     });
 
     it('rejects a purchase with no userId', async () => {
-      await createSale();
+      const saleId = await createSale();
 
-      await request(app.getHttpServer()).post('/purchase').send({}).expect(400);
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ saleId })
+        .expect(400);
     });
 
-    it('reports secured: false for a user who has not purchased', async () => {
+    it('rejects a purchase with no saleId', async () => {
+      await createSale();
+
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ userId: 'user-1' })
+        .expect(400);
+    });
+
+    it('rejects as invalid_sale when the sale id no longer matches the current sale', async () => {
       await createSale();
 
       const response = await request(app.getHttpServer())
-        .get('/purchase/never-bought')
+        .post('/purchase')
+        .send({ userId: 'user-1', saleId: 'not-the-current-sale' })
+        .expect(201);
+
+      expect(response.body.result).toBe('invalid_sale');
+    });
+
+    it('reports secured: false for a user who has not purchased', async () => {
+      const saleId = await createSale();
+
+      const response = await request(app.getHttpServer())
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'never-bought')
         .expect(200);
 
       expect(response.body.secured).toBe(false);

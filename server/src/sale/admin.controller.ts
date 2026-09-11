@@ -1,17 +1,12 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import {
+  createSaleBodySchema,
+  type CreateSaleBody,
+  type CreateSaleResponse,
+} from 'common';
 import { AdminKeyGuard } from './admin-key.guard.ts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts';
 import { SaleService } from './sale.service.ts';
-import { createSaleBodySchema } from './sale.schemas.ts';
-import type { CreateSaleBody } from './sale.schemas.ts';
-
-interface CreateSaleResponse {
-  id: string;
-  product: string;
-  totalStock: number;
-  startTime: string;
-  endTime: string;
-}
 
 @Controller('admin/sales')
 @UseGuards(AdminKeyGuard)

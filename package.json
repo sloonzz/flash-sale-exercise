@@ -3,17 +3,23 @@
   "private": true,
   "packageManager": "yarn@4.18.0",
   "workspaces": [
+    "common",
     "server",
     "frontend"
   ],
   "scripts": {
     "dev": "docker compose up -d --wait && yarn workspaces foreach -A -pi run dev",
+    "generate": "yarn workspace common run build && yarn workspace server prisma generate",
     "migrate:db": "yarn workspace server prisma migrate dev",
     "build": "yarn workspaces foreach -A -t run build",
     "lint": "yarn workspaces foreach -A -pi run lint",
-    "format": "prettier --write \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
+    "typecheck": "yarn workspaces foreach -A -pi run typecheck",
+    "format": "prettier --write \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\" \"common/src/**/*.ts\"",
+    "format:check": "prettier --check \"server/src/**/*.ts\" \"server/test/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\" \"common/src/**/*.ts\"",
     "test": "yarn workspace server run test",
+    "test:unit": "yarn workspaces foreach -A -pi run test:unit",
+    "test:integration": "yarn workspaces foreach -A -pi run test:integration",
+    "test:e2e": "yarn workspaces foreach -A -pi run test:e2e",
     "prepare": "husky"
   },
   "devDependencies": {

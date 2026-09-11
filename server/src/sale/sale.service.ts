@@ -1,14 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type {
+  CreateSaleBody,
+  PurchaseResult,
+  SaleStatus,
+  SaleStatusResponse,
+} from 'common';
 import { ReconciliationService } from '../reconciliation/reconciliation.service.ts';
 import type { SaleModel } from '../generated/prisma/models.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
-import type {
-  CreateSaleInput,
-  PurchaseResult,
-  SaleStatus,
-  SaleStatusResponse,
-} from './sale-types.ts';
 
 @Injectable()
 export class SaleService {
@@ -18,8 +18,23 @@ export class SaleService {
     private readonly reconciliationService: ReconciliationService,
   ) {}
 
-  private getCurrentSale(): Promise<SaleModel | null> {
-    return this.prisma.sale.findFirst();
+  private async getCurrentSale(): Promise<SaleModel | null> {
+    const openCandidates = await this.prisma.sale.findMany({
+      where: { endTime: { gte: new Date() } },
+      orderBy: { startTime: 'asc' },
+    });
+
+    for (const sale of openCandidates) {
+      const stock = await this.reservationService.getStock(sale.id);
+      if (stock === null || stock > 0) {
+        return sale;
+      }
+    }
+
+    // No sale is open (all are sold out or none exist yet without ending) —
+    // fall back to the most recently started sale so terminal statuses
+    // (SoldOut/Ended) still resolve to a sale instead of "not found".
+    return this.prisma.sale.findFirst({ orderBy: { startTime: 'desc' } });
   }
 
   async getStatus(): Promise<SaleStatusResponse> {
@@ -29,6 +44,7 @@ export class SaleService {
     }
 
     return {
+      id: sale.id,
       status: await this.computeStatus(sale),
       startTime: sale.startTime.toISOString(),
       endTime: sale.endTime.toISOString(),
@@ -36,10 +52,13 @@ export class SaleService {
     };
   }
 
-  async purchase(userId: string): Promise<PurchaseResult> {
+  async purchase(userId: string, saleId: string): Promise<PurchaseResult> {
     const sale = await this.getCurrentSale();
     if (!sale) {
       return 'not_active';
+    }
+    if (sale.id !== saleId) {
+      return 'invalid_sale';
     }
 
     switch (this.classifyWindow(sale)) {
@@ -52,23 +71,12 @@ export class SaleService {
     }
   }
 
-  async hasSecured(userId: string): Promise<boolean> {
-    const sale = await this.getCurrentSale();
-    if (!sale) {
-      return false;
-    }
-
-    return this.reservationService.isReserved(sale.id, userId);
+  async hasSecured(userId: string, saleId: string): Promise<boolean> {
+    return this.reservationService.isReserved(saleId, userId);
   }
 
-  async createSale(input: CreateSaleInput): Promise<SaleModel> {
-    const existing = await this.getCurrentSale();
-    const sale = existing
-      ? await this.prisma.sale.update({
-          where: { id: existing.id },
-          data: input,
-        })
-      : await this.prisma.sale.create({ data: input });
+  async createSale(input: CreateSaleBody): Promise<SaleModel> {
+    const sale = await this.prisma.sale.create({ data: input });
 
     await this.reconciliationService.reconcile(sale.id);
 
