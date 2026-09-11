@@ -4,7 +4,10 @@ import type { PurchaseResult } from 'common';
 import { ApiError } from '../api/client.ts';
 import { getMutationFeedback, type Feedback } from '../api/feedback.ts';
 import { useSaleStatusQuery } from '../api/queries/useSaleStatusQuery.ts';
-import { useSecuredQuery } from '../api/queries/useSecuredQuery.ts';
+import {
+  securedQueryKey,
+  useSecuredQuery,
+} from '../api/queries/useSecuredQuery.ts';
 import { usePurchaseMutation } from '../api/mutations/usePurchaseMutation.ts';
 import { formatDateTime, formatSaleStatus } from '../lib/format.ts';
 
@@ -26,6 +29,12 @@ function feedbackForResult(result: PurchaseResult): Feedback {
       return { kind: 'warning', message: 'This sale has ended.' };
     case 'not_active':
       return { kind: 'warning', message: "This sale isn't active yet." };
+    case 'stale_sale':
+      return {
+        kind: 'warning',
+        message:
+          'This sale has changed — please check the details and try again.',
+      };
   }
 }
 
@@ -44,6 +53,7 @@ export function BuyerPage() {
   const queryClient = useQueryClient();
   const saleStatusQuery = useSaleStatusQuery();
   const saleStatus = saleStatusQuery.data;
+  const saleId = saleStatus?.id;
   const loading = saleStatusQuery.isPending;
   function getStatusError(): string | null {
     if (!saleStatusQuery.isError) return null;
@@ -67,10 +77,15 @@ export function BuyerPage() {
   );
   const isDebouncing = trimmedUserId !== debouncedUserId;
 
-  const securedQuery = useSecuredQuery(debouncedUserId);
+  const securedQuery = useSecuredQuery(saleId, debouncedUserId);
   const secured = isDebouncing ? null : (securedQuery.data?.secured ?? null);
 
   const purchaseMutation = usePurchaseMutation();
+
+  const { reset: resetPurchaseMutation } = purchaseMutation;
+  useEffect(() => {
+    resetPurchaseMutation();
+  }, [saleId, resetPurchaseMutation]);
 
   const feedback = getMutationFeedback(purchaseMutation, {
     onSuccess: (data) => feedbackForResult(data.result),
@@ -80,24 +95,28 @@ export function BuyerPage() {
   });
 
   function handleBuy() {
-    if (!trimmedUserId) return;
+    if (!trimmedUserId || !saleId) return;
 
-    purchaseMutation.mutate(trimmedUserId, {
-      onSuccess: ({ result }) => {
-        if (result === 'success' || result === 'already_purchased') {
-          queryClient.setQueryData(['secured', trimmedUserId], {
-            secured: true,
-          });
-        }
-        saleStatusQuery.refetch();
+    purchaseMutation.mutate(
+      { userId: trimmedUserId, saleId },
+      {
+        onSuccess: ({ result }) => {
+          if (result === 'success' || result === 'already_purchased') {
+            queryClient.setQueryData(securedQueryKey(saleId, trimmedUserId), {
+              secured: true,
+            });
+          }
+          saleStatusQuery.refetch();
+        },
       },
-    });
+    );
   }
 
   const purchasing = purchaseMutation.isPending;
   const canBuy =
     !loading &&
     !purchasing &&
+    !!saleId &&
     saleStatus?.status === 'active' &&
     secured !== true &&
     trimmedUserId.length > 0;

@@ -11,18 +11,23 @@ export function getSaleStatus(
   return request<SaleStatusResponse>('/sale/status', { signal });
 }
 
-export function purchase(userId: string): Promise<PurchaseResponse> {
+export function purchase(
+  userId: string,
+  saleId: string,
+): Promise<PurchaseResponse> {
   return request<PurchaseResponse>('/purchase', {
     method: 'POST',
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ userId, saleId }),
   });
 }
 
 export function checkSecured(
   userId: string,
+  saleId: string,
   signal?: AbortSignal,
 ): Promise<SecuredResponse> {
-  return request<SecuredResponse>(`/purchase/${encodeURIComponent(userId)}`, {
-    signal,
-  });
+  return request<SecuredResponse>(
+    `/purchase/${encodeURIComponent(saleId)}/${encodeURIComponent(userId)}`,
+    { signal },
+  );
 }

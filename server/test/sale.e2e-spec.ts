@@ -188,7 +188,7 @@ describe('Sale API (e2e)', () => {
       });
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId: soldOutId })
         .expect(201);
       await waitForOrder(soldOutId, 'user-1');
 
@@ -211,13 +211,13 @@ describe('Sale API (e2e)', () => {
         startTime: new Date(Date.now() - 120_000),
         endTime: new Date(Date.now() - 60_000),
       });
-      await createSale({
+      const openId = await createSale({
         totalStock: 1,
         startTime: new Date(Date.now() - 30_000),
       });
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId: openId })
         .expect(201);
 
       const status = await request(app.getHttpServer())
@@ -292,18 +292,18 @@ describe('Sale API (e2e)', () => {
     });
   });
 
-  describe('POST /purchase + GET /purchase/:userId', () => {
+  describe('POST /purchase + GET /purchase/:saleId/:userId', () => {
     it('succeeds for a first-time purchase and reflects it in the check-secured read', async () => {
       const saleId = await createSale();
 
       const purchaseResponse = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
       expect(purchaseResponse.body.result).toBe('success');
 
       const checkResponse = await request(app.getHttpServer())
-        .get('/purchase/user-1')
+        .get(`/purchase/${saleId}/user-1`)
         .expect(200);
       expect(checkResponse.body.secured).toBe(true);
 
@@ -314,12 +314,12 @@ describe('Sale API (e2e)', () => {
       const saleId = await createSale();
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('already_purchased');
@@ -331,12 +331,12 @@ describe('Sale API (e2e)', () => {
       const saleId = await createSale({ totalStock: 1 });
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-2' })
+        .send({ userId: 'user-2', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('sold_out');
@@ -345,44 +345,67 @@ describe('Sale API (e2e)', () => {
     });
 
     it('rejects before the sale has started, without granting a reservation', async () => {
-      await createSale({
+      const saleId = await createSale({
         startTime: new Date(Date.now() + 60_000),
         endTime: new Date(Date.now() + 120_000),
       });
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('not_active');
     });
 
     it('rejects after the sale has ended', async () => {
-      await createSale({
+      const saleId = await createSale({
         startTime: new Date(Date.now() - 120_000),
         endTime: new Date(Date.now() - 60_000),
       });
 
       const response = await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1' })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
 
       expect(response.body.result).toBe('ended');
     });
 
     it('rejects a purchase with no userId', async () => {
-      await createSale();
+      const saleId = await createSale();
 
-      await request(app.getHttpServer()).post('/purchase').send({}).expect(400);
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ saleId })
+        .expect(400);
     });
 
-    it('reports secured: false for a user who has not purchased', async () => {
+    it('rejects a purchase with no saleId', async () => {
+      await createSale();
+
+      await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ userId: 'user-1' })
+        .expect(400);
+    });
+
+    it('rejects as stale_sale when the sale id no longer matches the current sale', async () => {
       await createSale();
 
       const response = await request(app.getHttpServer())
-        .get('/purchase/never-bought')
+        .post('/purchase')
+        .send({ userId: 'user-1', saleId: 'not-the-current-sale' })
+        .expect(201);
+
+      expect(response.body.result).toBe('stale_sale');
+    });
+
+    it('reports secured: false for a user who has not purchased', async () => {
+      const saleId = await createSale();
+
+      const response = await request(app.getHttpServer())
+        .get(`/purchase/${saleId}/never-bought`)
         .expect(200);
 
       expect(response.body.secured).toBe(false);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 export type SaleStatus = 'upcoming' | 'active' | 'soldout' | 'ended';
 
 export interface SaleStatusResponse {
+  id: string;
   status: SaleStatus;
   startTime: string;
   endTime: string;
@@ -10,7 +11,12 @@ export interface SaleStatusResponse {
 }
 
 export type PurchaseResult =
-  'success' | 'already_purchased' | 'sold_out' | 'ended' | 'not_active';
+  | 'success'
+  | 'already_purchased'
+  | 'sold_out'
+  | 'ended'
+  | 'not_active'
+  | 'stale_sale';
 
 export interface PurchaseResponse {
   result: PurchaseResult;
@@ -29,8 +35,14 @@ export const userIdSchema = z
   .trim()
   .min(1, 'User ID is required');
 
+export const saleIdSchema = z
+  .string({ error: 'Sale ID is required' })
+  .trim()
+  .min(1, 'Sale ID is required');
+
 export const purchaseBodySchema = z.object({
   userId: userIdSchema,
+  saleId: saleIdSchema,
 });
 export type PurchaseBody = z.infer<typeof purchaseBodySchema>;
 

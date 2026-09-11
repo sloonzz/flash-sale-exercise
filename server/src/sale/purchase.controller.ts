@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
   purchaseBodySchema,
+  saleIdSchema,
   userIdSchema,
   type PurchaseBody,
   type PurchaseResponse,
@@ -19,15 +20,16 @@ export class PurchaseController {
   async purchase(
     @Body(new ZodValidationPipe(purchaseBodySchema)) body: PurchaseBody,
   ): Promise<PurchaseResponse> {
-    const result = await this.saleService.purchase(body.userId);
+    const result = await this.saleService.purchase(body.userId, body.saleId);
     return { result };
   }
 
-  @Get(':userId')
+  @Get(':saleId/:userId')
   async checkSecured(
+    @Param('saleId', new ZodValidationPipe(saleIdSchema)) saleId: string,
     @Param('userId', new ZodValidationPipe(userIdSchema)) userId: string,
   ): Promise<SecuredResponse> {
-    const secured = await this.saleService.hasSecured(userId);
+    const secured = await this.saleService.hasSecured(userId, saleId);
     return { secured };
   }
 }

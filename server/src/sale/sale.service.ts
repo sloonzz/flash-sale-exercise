@@ -44,6 +44,7 @@ export class SaleService {
     }
 
     return {
+      id: sale.id,
       status: await this.computeStatus(sale),
       startTime: sale.startTime.toISOString(),
       endTime: sale.endTime.toISOString(),
@@ -51,10 +52,13 @@ export class SaleService {
     };
   }
 
-  async purchase(userId: string): Promise<PurchaseResult> {
+  async purchase(userId: string, saleId: string): Promise<PurchaseResult> {
     const sale = await this.getCurrentSale();
     if (!sale) {
       return 'not_active';
+    }
+    if (sale.id !== saleId) {
+      return 'stale_sale';
     }
 
     switch (this.classifyWindow(sale)) {
@@ -67,13 +71,8 @@ export class SaleService {
     }
   }
 
-  async hasSecured(userId: string): Promise<boolean> {
-    const sale = await this.getCurrentSale();
-    if (!sale) {
-      return false;
-    }
-
-    return this.reservationService.isReserved(sale.id, userId);
+  async hasSecured(userId: string, saleId: string): Promise<boolean> {
+    return this.reservationService.isReserved(saleId, userId);
   }
 
   async createSale(input: CreateSaleBody): Promise<SaleModel> {

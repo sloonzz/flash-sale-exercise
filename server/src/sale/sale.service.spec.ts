@@ -160,7 +160,9 @@ describe('SaleService', () => {
       vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
       vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
 
-      await expect(saleService.purchase('user-1')).resolves.toBe('not_active');
+      await expect(saleService.purchase('user-1', 'any-sale-id')).resolves.toBe(
+        'not_active',
+      );
       expect(reservationService.reserve).not.toHaveBeenCalled();
     });
 
@@ -169,7 +171,9 @@ describe('SaleService', () => {
       vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
       vi.mocked(reservationService.getStock).mockResolvedValue(null);
 
-      await expect(saleService.purchase('user-1')).resolves.toBe('not_active');
+      await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
+        'not_active',
+      );
       expect(reservationService.reserve).not.toHaveBeenCalled();
     });
 
@@ -178,7 +182,9 @@ describe('SaleService', () => {
       vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
       vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
 
-      await expect(saleService.purchase('user-1')).resolves.toBe('ended');
+      await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
+        'ended',
+      );
       expect(reservationService.reserve).not.toHaveBeenCalled();
     });
 
@@ -188,32 +194,45 @@ describe('SaleService', () => {
       vi.mocked(reservationService.getStock).mockResolvedValue(5);
       vi.mocked(reservationService.reserve).mockResolvedValue('success');
 
-      await expect(saleService.purchase('user-1')).resolves.toBe('success');
+      await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
+        'success',
+      );
       expect(reservationService.reserve).toHaveBeenCalledWith(
         sale.id,
         'user-1',
       );
     });
+
+    it('rejects as stale_sale when the caller purchases against a sale that is no longer current', async () => {
+      const current = makeSale();
+      vi.mocked(prisma.sale.findMany).mockResolvedValue([current] as never);
+      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+
+      await expect(
+        saleService.purchase('user-1', 'a-stale-sale-id'),
+      ).resolves.toBe('stale_sale');
+      expect(reservationService.reserve).not.toHaveBeenCalled();
+    });
   });
 
   describe('hasSecured', () => {
-    it('is false when no sale has been configured', async () => {
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
-
-      await expect(saleService.hasSecured('user-1')).resolves.toBe(false);
-    });
-
-    it('reads the reserved-users state from the Reservation module', async () => {
-      const sale = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+    it('reads the reserved-users state from the Reservation module for the given sale', async () => {
       vi.mocked(reservationService.isReserved).mockResolvedValue(true);
 
-      await expect(saleService.hasSecured('user-1')).resolves.toBe(true);
+      await expect(saleService.hasSecured('user-1', 'sale-1')).resolves.toBe(
+        true,
+      );
       expect(reservationService.isReserved).toHaveBeenCalledWith(
-        sale.id,
+        'sale-1',
         'user-1',
+      );
+    });
+
+    it('is false when the Reservation module has no record for the sale', async () => {
+      vi.mocked(reservationService.isReserved).mockResolvedValue(false);
+
+      await expect(saleService.hasSecured('user-1', 'sale-1')).resolves.toBe(
+        false,
       );
     });
   });
