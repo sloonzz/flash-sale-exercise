@@ -423,6 +423,13 @@ describe('Sale API (e2e)', () => {
       // /purchase so this burst itself never gets rate-limited.
       const attempts = 12;
       const saleId = await createSale({ totalStock });
+
+      // The ThrottlerGuard's counter is shared across every /purchase call in
+      // this file (one app instance for the whole suite). Let its 1000ms
+      // window fully lapse before firing the burst so earlier tests' hits
+      // never eat into this test's budget.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
       const userIds = Array.from(
         { length: attempts },
         (_, i) => `concurrent-user-${i}`,
@@ -432,7 +439,7 @@ describe('Sale API (e2e)', () => {
         userIds.map((userId) =>
           request(app.getHttpServer())
             .post('/purchase')
-            .send({ userId })
+            .send({ userId, saleId })
             .expect(201),
         ),
       );
