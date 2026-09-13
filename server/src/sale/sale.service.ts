@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   CreateSaleBody,
   PurchaseResult,
@@ -29,7 +29,19 @@ export class SaleService {
 
   private async getCurrentSale(): Promise<CachedSale | null> {
     const raw = await this.redis.get(currentSaleKey());
-    return raw === null ? null : deserializeSale(raw);
+    if (raw !== null) {
+      return deserializeSale(raw);
+    }
+
+    const sale = await this.prisma.sale.findFirst({
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!sale) {
+      return null;
+    }
+
+    await this.cacheSale(sale);
+    return sale;
   }
 
   private async cacheSale(sale: CachedSale): Promise<void> {
@@ -39,7 +51,7 @@ export class SaleService {
   async getStatus(): Promise<SaleStatusResponse> {
     const sale = await this.getCurrentSale();
     if (!sale) {
-      throw new NotFoundException('No sale has been configured');
+      return { status: 'no_sale' };
     }
 
     return {

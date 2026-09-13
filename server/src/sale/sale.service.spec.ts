@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.ts';
@@ -58,13 +57,16 @@ describe('SaleService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
   });
 
   describe('getStatus', () => {
-    it('throws when no sale has been configured', async () => {
+    it('reports no_sale when no sale has been configured', async () => {
       seedCurrentSale();
 
-      await expect(saleService.getStatus()).rejects.toThrow(NotFoundException);
+      await expect(saleService.getStatus()).resolves.toEqual({
+        status: 'no_sale',
+      });
     });
 
     it('resolves the current sale from the cache instead of querying Postgres', async () => {
@@ -77,6 +79,26 @@ describe('SaleService', () => {
       expect(redis.get).toHaveBeenCalledWith(currentSaleKey());
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('recovers the current sale from Postgres and backfills the cache on a cache miss', async () => {
+      const sale = makeSale();
+      seedCurrentSale();
+      vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
+      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+
+      await expect(saleService.getStatus()).resolves.toMatchObject({
+        id: sale.id,
+        product: sale.productName,
+      });
+
+      expect(prisma.sale.findFirst).toHaveBeenCalledWith({
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(redis.set).toHaveBeenCalledWith(
+        currentSaleKey(),
+        serializeSale(sale),
+      );
     });
 
     it('reports upcoming before the start time', async () => {

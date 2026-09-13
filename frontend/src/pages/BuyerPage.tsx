@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PurchaseResult } from 'common';
 import { ApiError } from '../api/client.ts';
-import { errorMessage } from '../api/errors.ts';
 import { getMutationFeedback, type Feedback } from '../api/feedback.ts';
 import { useSaleStatusQuery } from '../api/queries/useSaleStatusQuery.ts';
 import {
@@ -15,8 +14,6 @@ import {
   formatDateTime,
   formatSaleStatus,
 } from '../lib/format.ts';
-
-const STATUS_ERROR_OVERRIDES = { 404: 'No sales available.' };
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
 const SECURED_CHECK_DEBOUNCE_MS = 400;
@@ -79,22 +76,25 @@ export function BuyerPage() {
   const queryClient = useQueryClient();
   const saleStatusQuery = useSaleStatusQuery();
   const saleStatus = saleStatusQuery.data;
-  const saleId = saleStatus?.id;
+  const activeSale =
+    saleStatus && saleStatus.status !== 'no_sale' ? saleStatus : undefined;
+  const saleId = activeSale?.id;
   const loading = saleStatusQuery.isPending;
   function getStatusError(): string | null {
     if (!saleStatusQuery.isError) return null;
     return saleStatusQuery.error instanceof ApiError
-      ? errorMessage(saleStatusQuery.error, STATUS_ERROR_OVERRIDES)
+      ? saleStatusQuery.error.message
       : 'Failed to load sale status';
   }
   const statusError = getStatusError();
+  const noSaleConfigured = saleStatus?.status === 'no_sale';
 
   const remainingStartMs = useCountdown(
-    saleStatus?.status === 'upcoming' ? saleStatus.startTime : undefined,
+    activeSale?.status === 'upcoming' ? activeSale.startTime : undefined,
   );
   const saleHasStarted =
-    saleStatus?.status === 'upcoming' && remainingStartMs <= 0;
-  const effectiveStatus = saleHasStarted ? 'active' : saleStatus?.status;
+    activeSale?.status === 'upcoming' && remainingStartMs <= 0;
+  const effectiveStatus = saleHasStarted ? 'active' : activeSale?.status;
   const [userId, setUserId] = useState(
     () => localStorage.getItem(USER_ID_STORAGE_KEY) ?? '',
   );
@@ -162,14 +162,17 @@ export function BuyerPage() {
       {statusError && !saleStatus && (
         <p className="banner banner-error">{statusError}</p>
       )}
+      {noSaleConfigured && (
+        <p className="banner banner-warning">No sales available.</p>
+      )}
 
-      {saleStatus && effectiveStatus && (
+      {activeSale && effectiveStatus && (
         <div className="sale-card">
           <span className={`status-pill status-${effectiveStatus}`}>
             {formatSaleStatus(effectiveStatus)}
           </span>
-          <h2>{saleStatus.product}</h2>
-          {saleStatus.status === 'upcoming' && !saleHasStarted && (
+          <h2>{activeSale.product}</h2>
+          {activeSale.status === 'upcoming' && !saleHasStarted && (
             <p className="countdown">
               Starts in {formatCountdown(remainingStartMs)}
             </p>
@@ -177,11 +180,11 @@ export function BuyerPage() {
           <dl className="sale-times">
             <div>
               <dt>Starts</dt>
-              <dd>{formatDateTime(saleStatus.startTime)}</dd>
+              <dd>{formatDateTime(activeSale.startTime)}</dd>
             </div>
             <div>
               <dt>Ends</dt>
-              <dd>{formatDateTime(saleStatus.endTime)}</dd>
+              <dd>{formatDateTime(activeSale.endTime)}</dd>
             </div>
           </dl>
         </div>
