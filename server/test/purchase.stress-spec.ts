@@ -28,7 +28,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CLIENT_SCRIPT = fileURLToPath(
-  new URL('./support/autocannon-client.ts', import.meta.url),
+  new URL('./support/purchase-autocannon-client.ts', import.meta.url),
 );
 
 const ADMIN_KEY = 'test-admin-key';
@@ -43,9 +43,6 @@ if (TOTAL_STOCK >= CONCURRENT_USERS) {
 
 type PurchaseResultOrNull = PurchaseResult | null;
 
-// Runs against a real, clustered server process (see clustered-server.ts)
-// rather than an in-process Nest TestingModule, so the suite exercises
-// cluster.fork() and matches how the service actually runs in production.
 describe(`Purchase under load (stress, CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
   let server: ClusteredServer;
   const redis = new Redis(REDIS_URL);
@@ -119,9 +116,6 @@ describe(`Purchase under load (stress, CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () 
     return body.id;
   }
 
-  // Splits `amount` across CLIENT_SHARDS parallel client processes so the
-  // load generator's own single-process connection-opening pace doesn't
-  // become the bottleneck being measured.
   async function fireConcurrentPurchases(
     amount: number,
     userIds: 'unique' | 'duplicate',

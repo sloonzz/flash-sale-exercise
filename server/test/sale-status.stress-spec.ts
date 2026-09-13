@@ -26,9 +26,6 @@ const CLIENT_SCRIPT = fileURLToPath(
 
 const ADMIN_KEY = 'test-admin-key';
 
-// Runs against a real, clustered server process (see clustered-server.ts)
-// rather than an in-process Nest TestingModule, so the suite matches how
-// the service actually runs in production.
 describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
   let server: ClusteredServer;
   const redis = new Redis(REDIS_URL);
@@ -80,9 +77,6 @@ describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORK
     return body.id;
   }
 
-  // Splits `amount` across CLIENT_SHARDS parallel client processes so the
-  // load generator's own single-process connection-opening pace doesn't
-  // become the bottleneck being measured.
   async function fireConcurrentStatusFetches(amount: number): Promise<{
     statuses: number[];
     runResults: autocannon.Result[];

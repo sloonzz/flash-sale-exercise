@@ -57,9 +57,7 @@ describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/B
     console.log(
       `RESERVE_SCRIPT ceiling: ${opsPerSec.toFixed(0)} ops/sec ` +
         `(${CONCURRENT_USERS} concurrent unique-user EVALs against a single ` +
-        `Redis instance, ${durationMs.toFixed(1)}ms total). Compare this ` +
-        `against the sustained purchases/sec you actually need before ` +
-        `building docs/plans/redis-reservation-sharding.md.`,
+        `Redis instance, ${durationMs.toFixed(1)}ms total).`,
     );
   });
 });

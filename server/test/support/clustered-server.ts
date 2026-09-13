@@ -15,12 +15,6 @@ export interface ClusteredServer {
   stop: () => void;
 }
 
-// Runs the actual server entry (src/main.ts) as a real, separate OS process,
-// clustered via CLUSTER_WORKERS -- instead of Nest's in-process TestingModule.
-// This is the only way to exercise cluster.fork() for real, and it matches
-// how the service actually runs in production.
-// @swc-node/register (not tsx) transpiles it: esbuild-based loaders silently
-// drop the decorator metadata Nest's type-based DI relies on.
 export async function startClusteredServer(
   env: Record<string, string>,
 ): Promise<ClusteredServer> {
