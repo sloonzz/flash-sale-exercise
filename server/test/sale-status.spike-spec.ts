@@ -13,13 +13,12 @@ import {
 import {
   AUTOCANNON_WORKERS,
   CLUSTER_WORKERS,
-  STATUS_STRESS_CONNECTIONS,
-  STATUS_STRESS_DURATION_SECONDS,
+  CONCURRENT_SPIKE_USERS,
 } from './support/config.ts';
 
 const ADMIN_KEY = 'test-admin-key';
 
-describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
+describe(`GET /sale/status under spike load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
   let server: ClusteredServer;
   const redis = new Redis(REDIS_URL);
   const prisma = new PrismaClient({
@@ -58,7 +57,7 @@ describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORK
         'x-admin-key': ADMIN_KEY,
       },
       body: JSON.stringify({
-        productName: 'Sale Status Stress Widget',
+        productName: 'Sale Status Spike Widget',
         totalStock: 1000,
         startTime: new Date(now - 60_000).toISOString(),
         endTime: new Date(now + 5 * 60_000).toISOString(),
@@ -70,29 +69,29 @@ describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORK
     return body.id;
   }
 
-  function fireSustainedStatusFetches(
-    connections: number,
-    durationSeconds: number,
+  function fireConcurrentStatusFetches(
+    amount: number,
   ): Promise<autocannon.Result> {
     return new Promise((resolve, reject) => {
       autocannon(
         {
           url: server.baseUrl,
-          connections,
-          duration: durationSeconds,
+          // Spike test: every connection fires exactly one status check,
+          // mirroring a burst of users all loading the sale page at once
+          // the moment it opens
+          connections: amount,
+          amount,
+          duration: 15,
           workers: AUTOCANNON_WORKERS,
           requests: [{ method: 'GET', path: '/sale/status' }],
         },
         (err, result) => {
           try {
             if (err) throw err;
-            // Duration-driven, so the total request count isn't known up
-            // front -- assert on error/timeout/status health instead of an
-            // exact count.
             expect(result.errors).toBe(0);
             expect(result.timeouts).toBe(0);
             expect(result.non2xx).toBe(0);
-            expect(result['2xx']).toBeGreaterThan(0);
+            expect(result['2xx']).toBe(amount);
             resolve(result);
           } catch (assertionError) {
             reject(assertionError);
@@ -102,16 +101,11 @@ describe(`GET /sale/status under load (stress, no write contention, CLUSTER_WORK
     });
   }
 
-  it(`sustains ${STATUS_STRESS_CONNECTIONS} concurrent GET /sale/status requests for ${STATUS_STRESS_DURATION_SECONDS}s`, async () => {
+  it(`answers ${CONCURRENT_SPIKE_USERS} concurrent GET /sale/status requests correctly in a single burst`, async () => {
     const saleId = await createActiveSale();
 
-    const runResult = await fireSustainedStatusFetches(
-      STATUS_STRESS_CONNECTIONS,
-      STATUS_STRESS_DURATION_SECONDS,
-    );
+    const runResult = await fireConcurrentStatusFetches(CONCURRENT_SPIKE_USERS);
 
-    // Read-only endpoint, so sustained concurrent reads must never mutate
-    // or corrupt the cached sale -- confirm it still reflects the truth.
     const cached = await redis.get(currentSaleKey());
     expect(cached).not.toBeNull();
     expect(deserializeSale(cached!).id).toBe(saleId);

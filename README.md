@@ -77,8 +77,4 @@ yarn test:e2e          # e2e tests (needs the e2e db migrated, see above)
 yarn test:stress       # stress tests (same isolated db/redis as e2e)
 ```
 
-Stress tests default to a 4-worker clustered server and can be tuned via env vars, e.g.:
-
-```sh
-CLUSTER_WORKERS=8 STRESS_USERS=500 yarn test:stress
-```
+Stress tests default to a 4-worker clustered server and can be tuned via env vars under .env.e2e:

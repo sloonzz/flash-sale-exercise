@@ -20,8 +20,7 @@ import {
 import {
   AUTOCANNON_WORKERS,
   CLUSTER_WORKERS,
-  PURCHASE_STRESS_CONNECTIONS,
-  PURCHASE_STRESS_DURATION_SECONDS,
+  CONCURRENT_SPIKE_USERS,
 } from './support/config.ts';
 
 const SETUP_REQUEST_SCRIPT = fileURLToPath(
@@ -32,9 +31,13 @@ const ADMIN_KEY = 'test-admin-key';
 
 const UNDERSTOCKED_STOCK = Number(process.env.UNDERSTOCKED_STOCK ?? 50);
 
-const OVERSTOCKED_STOCK = 10_000_000;
+if (UNDERSTOCKED_STOCK >= CONCURRENT_SPIKE_USERS) {
+  throw new Error(
+    `UNDERSTOCKED_STOCK (${UNDERSTOCKED_STOCK}) must be less than STRESS_USERS (${CONCURRENT_SPIKE_USERS}) -- this suite exists to prove the reservation never oversells when demand exceeds stock.`,
+  );
+}
 
-describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
+describe(`Purchase under spike load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
   let server: ClusteredServer;
   const redis = new Redis(REDIS_URL);
   const prisma = new PrismaClient({
@@ -107,9 +110,8 @@ describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, (
     return body.id;
   }
 
-  function fireSustainedPurchases(
-    connections: number,
-    durationSeconds: number,
+  function fireConcurrentPurchases(
+    amount: number,
     userIds: 'unique' | 'duplicate',
     saleId: string,
   ): Promise<autocannon.Result> {
@@ -117,8 +119,11 @@ describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, (
       autocannon(
         {
           url: server.baseUrl,
-          connections,
-          duration: durationSeconds,
+          // Spike test: every connection fires exactly one purchase attempt,
+          // mirroring a real user hitting "buy" once when the sale opens
+          connections: amount,
+          amount,
+          duration: 15,
           workers: AUTOCANNON_WORKERS,
           initialContext: { saleId, userIds },
           requests: [
@@ -134,6 +139,7 @@ describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, (
             expect(result.errors).toBe(0);
             expect(result.timeouts).toBe(0);
             expect(result.non2xx).toBe(0);
+            expect(result['2xx']).toBe(amount);
             resolve(result);
           } catch (assertionError) {
             reject(assertionError);
@@ -143,12 +149,11 @@ describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, (
     });
   }
 
-  it(`keeps zero oversell of ${UNDERSTOCKED_STOCK} stock under ${PURCHASE_STRESS_CONNECTIONS} sustained unique-user connections for ${PURCHASE_STRESS_DURATION_SECONDS}s`, async () => {
+  it(`grants exactly ${UNDERSTOCKED_STOCK} of ${CONCURRENT_SPIKE_USERS} concurrent unique-user purchases, with zero oversell`, async () => {
     const saleId = await createSale(UNDERSTOCKED_STOCK);
 
-    const runResult = await fireSustainedPurchases(
-      PURCHASE_STRESS_CONNECTIONS,
-      PURCHASE_STRESS_DURATION_SECONDS,
+    const runResult = await fireConcurrentPurchases(
+      CONCURRENT_SPIKE_USERS,
       'unique',
       saleId,
     );
@@ -173,48 +178,42 @@ describe(`Purchase under sustained load (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, (
     console.log(autocannon.printResult(runResult));
   });
 
-  it(`accommodates sustained unique-user demand with overstocked supply (${OVERSTOCKED_STOCK.toLocaleString()}), granting every attempt exactly once`, async () => {
-    const saleId = await createSale(OVERSTOCKED_STOCK);
+  it(`grants all ${CONCURRENT_SPIKE_USERS} concurrent unique-user purchases when stock far exceeds demand`, async () => {
+    const abundantStock = CONCURRENT_SPIKE_USERS * 10;
+    const saleId = await createSale(abundantStock);
 
-    const runResult = await fireSustainedPurchases(
-      PURCHASE_STRESS_CONNECTIONS,
-      PURCHASE_STRESS_DURATION_SECONDS,
+    const runResult = await fireConcurrentPurchases(
+      CONCURRENT_SPIKE_USERS,
       'unique',
       saleId,
     );
 
-    let stockConsumed = -1;
+    await expect(redis.get(stockKey(saleId))).resolves.toBe(
+      String(abundantStock - CONCURRENT_SPIKE_USERS),
+    );
+
     await expect
-      .poll(
-        async () => {
-          const [stock, orderCount] = await Promise.all([
-            redis.get(stockKey(saleId)),
-            prisma.order.count({ where: { saleId } }),
-          ]);
-          stockConsumed = OVERSTOCKED_STOCK - Number(stock);
-          return orderCount === stockConsumed;
-        },
-        { timeout: 60_000, interval: 100 },
-      )
-      .toBe(true);
-    expect(stockConsumed).toBeGreaterThan(0);
+      .poll(() => prisma.order.count({ where: { saleId } }), {
+        timeout: 60_000,
+        interval: 100,
+      })
+      .toBe(CONCURRENT_SPIKE_USERS);
 
     const distinctUsers = await prisma.order.findMany({
       where: { saleId },
       select: { userId: true },
       distinct: ['userId'],
     });
-    expect(distinctUsers).toHaveLength(stockConsumed);
+    expect(distinctUsers).toHaveLength(CONCURRENT_SPIKE_USERS);
 
     console.log(autocannon.printResult(runResult));
   });
 
-  it(`grants exactly 1 order despite ${PURCHASE_STRESS_CONNECTIONS} connections hammering the same user for ${PURCHASE_STRESS_DURATION_SECONDS}s`, async () => {
-    const saleId = await createSale(PURCHASE_STRESS_CONNECTIONS * 10);
+  it(`grants exactly 1 of ${CONCURRENT_SPIKE_USERS} concurrent purchase attempts from the same user`, async () => {
+    const saleId = await createSale(CONCURRENT_SPIKE_USERS);
 
-    const runResult = await fireSustainedPurchases(
-      PURCHASE_STRESS_CONNECTIONS,
-      PURCHASE_STRESS_DURATION_SECONDS,
+    const runResult = await fireConcurrentPurchases(
+      CONCURRENT_SPIKE_USERS,
       'duplicate',
       saleId,
     );

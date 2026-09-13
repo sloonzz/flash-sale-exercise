@@ -17,7 +17,7 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['**/*.stress-spec.ts'],
+    include: ['**/*.spike-spec.ts', '**/*.stress-spec.ts'],
     env: e2eEnv,
     testTimeout: 120_000,
     hookTimeout: 120_000,
