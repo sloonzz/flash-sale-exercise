@@ -20,7 +20,10 @@ async function bootstrap() {
 }
 
 if (CLUSTER_WORKERS > 1 && cluster.isPrimary) {
-  const workers = Array.from({ length: CLUSTER_WORKERS }, () => cluster.fork());
+  const workers = new Set(
+    Array.from({ length: CLUSTER_WORKERS }, () => cluster.fork()),
+  );
+  let shuttingDown = false;
 
   let readyCount = 0;
   for (const worker of workers) {
@@ -33,7 +36,14 @@ if (CLUSTER_WORKERS > 1 && cluster.isPrimary) {
     });
   }
 
+  cluster.on('exit', (worker) => {
+    workers.delete(worker);
+    if (shuttingDown) return;
+    workers.add(cluster.fork());
+  });
+
   process.on('SIGTERM', () => {
+    shuttingDown = true;
     for (const worker of workers) worker.kill();
     process.exit(0);
   });
