@@ -7,8 +7,7 @@ import {
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
 import { RESERVE_SCRIPT } from '../src/reservation/reserve-script.ts';
-
-const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
+import { CONCURRENT_USERS } from './support/stress-config.ts';
 
 describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/BullMQ)', () => {
   const redis = new Redis(REDIS_URL);

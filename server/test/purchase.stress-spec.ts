@@ -16,11 +16,15 @@ import {
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
 import { currentSaleKey } from '../src/sale/sale-cache.ts';
-import { resolveClusterWorkers } from '../src/config/cluster-workers.ts';
 import {
   startClusteredServer,
   type ClusteredServer,
 } from './support/clustered-server.ts';
+import {
+  CLIENT_SHARDS,
+  CLUSTER_WORKERS,
+  CONCURRENT_USERS,
+} from './support/stress-config.ts';
 
 const execFileAsync = promisify(execFile);
 const CLIENT_SCRIPT = fileURLToPath(
@@ -30,11 +34,6 @@ const CLIENT_SCRIPT = fileURLToPath(
 const ADMIN_KEY = 'test-admin-key';
 
 const TOTAL_STOCK = Number(process.env.STRESS_STOCK ?? 50);
-const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
-const CLIENT_SHARDS = Number(process.env.STRESS_CLIENT_SHARDS ?? 4);
-const CLUSTER_WORKERS = resolveClusterWorkers(
-  Number(process.env.CLUSTER_WORKERS ?? 4),
-);
 
 if (TOTAL_STOCK >= CONCURRENT_USERS) {
   throw new Error(
