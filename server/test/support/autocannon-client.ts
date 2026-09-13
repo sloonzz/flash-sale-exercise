@@ -5,11 +5,12 @@ interface ClientConfig {
   amount: number;
   saleId: string;
   userIds: 'unique' | 'duplicate';
+  userIdOffset?: number;
 }
 
 const config: ClientConfig = JSON.parse(process.argv[2]);
 const results: Array<string | null> = [];
-let requestIndex = 0;
+let requestIndex = config.userIdOffset ?? 0;
 
 function nextUserId(): string {
   if (config.userIds === 'duplicate') {
@@ -22,6 +23,7 @@ const runResult = await autocannon({
   url: config.url,
   connections: config.amount,
   amount: config.amount,
+  timeout: 30,
   requests: [
     {
       method: 'POST',

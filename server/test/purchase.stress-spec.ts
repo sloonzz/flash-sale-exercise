@@ -1,25 +1,25 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { getQueueToken } from '@nestjs/bullmq';
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { PrismaPg } from '@prisma/adapter-pg';
 import autocannon from 'autocannon';
-import type { Queue } from 'bullmq';
+import { Queue } from 'bullmq';
 import type { PurchaseResult } from 'common';
 import { Redis } from 'ioredis';
-import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { AppModule } from '../src/app.module.ts';
-import { REDIS_URL } from '../src/config/env.ts';
+import { DATABASE_URL, REDIS_URL } from '../src/config/env.ts';
+import { PrismaClient } from '../src/generated/prisma/client.ts';
+import { BULL_REDIS_CONNECTION } from '../src/order/bull-connection.ts';
 import { PERSIST_ORDER_QUEUE } from '../src/order/persist-order-job.ts';
-import { PrismaService } from '../src/prisma/prisma.service.ts';
 import {
   reservedUsersKey,
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
 import { currentSaleKey } from '../src/sale/sale-cache.ts';
+import {
+  startClusteredServer,
+  type ClusteredServer,
+} from './support/clustered-server.ts';
 
 const execFileAsync = promisify(execFile);
 const CLIENT_SCRIPT = fileURLToPath(
@@ -30,6 +30,8 @@ const ADMIN_KEY = 'test-admin-key';
 
 const TOTAL_STOCK = Number(process.env.STRESS_STOCK ?? 50);
 const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
+const CLIENT_SHARDS = Number(process.env.STRESS_CLIENT_SHARDS ?? 4);
+const CLUSTER_WORKERS = Number(process.env.CLUSTER_WORKERS ?? 4);
 
 if (TOTAL_STOCK >= CONCURRENT_USERS) {
   throw new Error(
@@ -37,34 +39,29 @@ if (TOTAL_STOCK >= CONCURRENT_USERS) {
   );
 }
 
-describe('Purchase under load (stress)', () => {
-  let app: INestApplication;
-  let prisma: PrismaService;
-  let persistOrderQueue: Queue;
-  let baseUrl: string;
+type PurchaseResultOrNull = PurchaseResult | null;
+
+// Runs against a real, clustered server process (see clustered-server.ts)
+// rather than an in-process Nest TestingModule, so the suite exercises
+// cluster.fork() and matches how the service actually runs in production.
+describe(`Purchase under load (stress, CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
+  let server: ClusteredServer;
   const redis = new Redis(REDIS_URL);
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: DATABASE_URL }),
+  });
+  const persistOrderQueue = new Queue(PERSIST_ORDER_QUEUE, {
+    connection: BULL_REDIS_CONNECTION,
+  });
   const saleIds: string[] = [];
 
   beforeAll(async () => {
-    process.env.ADMIN_KEY = ADMIN_KEY;
-
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideGuard(ThrottlerGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
-    await app.listen(0);
-    prisma = app.get(PrismaService);
-    persistOrderQueue = app.get(getQueueToken(PERSIST_ORDER_QUEUE));
-
-    const address = app.getHttpServer().address();
-    const port = typeof address === 'string' ? address : address.port;
-    baseUrl = `http://127.0.0.1:${port}`;
-  });
+    server = await startClusteredServer({
+      ADMIN_KEY,
+      CLUSTER_WORKERS: String(CLUSTER_WORKERS),
+      THROTTLE_LIMIT: String(CONCURRENT_USERS * 2),
+    });
+  }, 60_000);
 
   afterEach(async () => {
     await expect
@@ -93,50 +90,86 @@ describe('Purchase under load (stress)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    server.stop();
+    await persistOrderQueue.close();
+    await prisma.$disconnect();
     await redis.quit();
   });
 
   async function createSale(totalStock: number): Promise<string> {
     const now = Date.now();
-    const response = await request(app.getHttpServer())
-      .post('/admin/sales')
-      .set('x-admin-key', ADMIN_KEY)
-      .send({
+    const response = await fetch(`${server.baseUrl}/admin/sales`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-key': ADMIN_KEY,
+      },
+      body: JSON.stringify({
         productName: 'Stress Test Widget',
         totalStock,
         startTime: new Date(now - 60_000).toISOString(),
         endTime: new Date(now + 5 * 60_000).toISOString(),
-      })
-      .expect(201);
-
-    saleIds.push(response.body.id);
-    return response.body.id;
+      }),
+    });
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { id: string };
+    saleIds.push(body.id);
+    return body.id;
   }
 
-  // Runs autocannon in a separate OS process from the server under test.
+  // Splits `amount` across CLIENT_SHARDS parallel client processes so the
+  // load generator's own single-process connection-opening pace doesn't
+  // become the bottleneck being measured.
   async function fireConcurrentPurchases(
     amount: number,
     userIds: 'unique' | 'duplicate',
     saleId: string,
   ): Promise<{
     results: Array<PurchaseResultOrNull>;
-    runResult: autocannon.Result;
+    runResults: autocannon.Result[];
   }> {
-    const config = JSON.stringify({ url: baseUrl, amount, saleId, userIds });
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [CLIENT_SCRIPT, config],
-      { maxBuffer: 64 * 1024 * 1024 },
+    const baseShardAmount = Math.floor(amount / CLIENT_SHARDS);
+    let userIdOffset = 0;
+    const shardAmounts = Array.from({ length: CLIENT_SHARDS }, (_, i) =>
+      i === CLIENT_SHARDS - 1
+        ? amount - baseShardAmount * (CLIENT_SHARDS - 1)
+        : baseShardAmount,
     );
 
-    return JSON.parse(stdout);
+    const shardResults = await Promise.all(
+      shardAmounts.map(async (shardAmount) => {
+        const config = JSON.stringify({
+          url: server.baseUrl,
+          amount: shardAmount,
+          saleId,
+          userIds,
+          userIdOffset,
+        });
+        userIdOffset += shardAmount;
+
+        const { stdout } = await execFileAsync(
+          process.execPath,
+          [CLIENT_SCRIPT, config],
+          { maxBuffer: 64 * 1024 * 1024 },
+        );
+
+        return JSON.parse(stdout) as {
+          results: Array<PurchaseResultOrNull>;
+          runResult: autocannon.Result;
+        };
+      }),
+    );
+
+    return {
+      results: shardResults.flatMap((shard) => shard.results),
+      runResults: shardResults.map((shard) => shard.runResult),
+    };
   }
 
   it(`grants exactly ${TOTAL_STOCK} of ${CONCURRENT_USERS} concurrent unique-user purchases, with zero oversell`, async () => {
     const saleId = await createSale(TOTAL_STOCK);
 
-    const { results, runResult } = await fireConcurrentPurchases(
+    const { results, runResults } = await fireConcurrentPurchases(
       CONCURRENT_USERS,
       'unique',
       saleId,
@@ -165,17 +198,25 @@ describe('Purchase under load (stress)', () => {
     });
     expect(distinctUsers).toHaveLength(TOTAL_STOCK);
 
-    console.log(autocannon.printResult(runResult));
+    runResults.forEach((runResult) =>
+      console.log(autocannon.printResult(runResult)),
+    );
   });
 
   it(`grants all ${CONCURRENT_USERS} concurrent unique-user purchases when stock far exceeds demand`, async () => {
     const abundantStock = CONCURRENT_USERS * 10;
     const saleId = await createSale(abundantStock);
 
-    const { results, runResult } = await fireConcurrentPurchases(
+    const { results, runResults } = await fireConcurrentPurchases(
       CONCURRENT_USERS,
       'unique',
       saleId,
+    );
+
+    runResults.forEach((runResult, index) =>
+      console.log(
+        `shard ${index}: errors=${runResult.errors} timeouts=${runResult.timeouts} non2xx=${runResult.non2xx}`,
+      ),
     );
 
     expect(results).toHaveLength(CONCURRENT_USERS);
@@ -202,13 +243,15 @@ describe('Purchase under load (stress)', () => {
     });
     expect(distinctUsers).toHaveLength(CONCURRENT_USERS);
 
-    console.log(autocannon.printResult(runResult));
+    runResults.forEach((runResult) =>
+      console.log(autocannon.printResult(runResult)),
+    );
   });
 
   it(`grants exactly 1 of ${CONCURRENT_USERS} concurrent purchase attempts from the same user`, async () => {
     const saleId = await createSale(CONCURRENT_USERS);
 
-    const { results, runResult } = await fireConcurrentPurchases(
+    const { results, runResults } = await fireConcurrentPurchases(
       CONCURRENT_USERS,
       'duplicate',
       saleId,
@@ -231,8 +274,8 @@ describe('Purchase under load (stress)', () => {
       })
       .toBe(1);
 
-    console.log(autocannon.printResult(runResult));
+    runResults.forEach((runResult) =>
+      console.log(autocannon.printResult(runResult)),
+    );
   });
 });
-
-type PurchaseResultOrNull = PurchaseResult | null;
