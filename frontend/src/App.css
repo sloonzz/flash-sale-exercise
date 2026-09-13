@@ -66,6 +66,14 @@
   color: #b91c1c;
 }
 
+.countdown {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
 .sale-times {
   display: flex;
   gap: 32px;

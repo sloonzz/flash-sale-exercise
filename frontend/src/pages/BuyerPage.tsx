@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PurchaseResult } from 'common';
 import { ApiError } from '../api/client.ts';
+import { errorMessage } from '../api/errors.ts';
 import { getMutationFeedback, type Feedback } from '../api/feedback.ts';
 import { useSaleStatusQuery } from '../api/queries/useSaleStatusQuery.ts';
 import {
@@ -9,7 +10,13 @@ import {
   useSecuredQuery,
 } from '../api/queries/useSecuredQuery.ts';
 import { usePurchaseMutation } from '../api/mutations/usePurchaseMutation.ts';
-import { formatDateTime, formatSaleStatus } from '../lib/format.ts';
+import {
+  formatCountdown,
+  formatDateTime,
+  formatSaleStatus,
+} from '../lib/format.ts';
+
+const STATUS_ERROR_OVERRIDES = { 404: 'No sales available.' };
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
 const SECURED_CHECK_DEBOUNCE_MS = 400;
@@ -48,6 +55,26 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
+/** Milliseconds remaining until targetIso, ticking down to 0 with no target. */
+function useCountdown(targetIso: string | undefined): number {
+  const targetMs = targetIso ? new Date(targetIso).getTime() : null;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (targetMs === null || targetMs <= Date.now()) return;
+
+    const interval = setInterval(() => {
+      const nowMs = Date.now();
+      setNow(nowMs);
+      if (targetMs <= nowMs) clearInterval(interval);
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [targetMs]);
+
+  return targetMs === null ? 0 : Math.max(0, targetMs - now);
+}
+
 export function BuyerPage() {
   const queryClient = useQueryClient();
   const saleStatusQuery = useSaleStatusQuery();
@@ -57,10 +84,17 @@ export function BuyerPage() {
   function getStatusError(): string | null {
     if (!saleStatusQuery.isError) return null;
     return saleStatusQuery.error instanceof ApiError
-      ? saleStatusQuery.error.message
+      ? errorMessage(saleStatusQuery.error, STATUS_ERROR_OVERRIDES)
       : 'Failed to load sale status';
   }
   const statusError = getStatusError();
+
+  const remainingStartMs = useCountdown(
+    saleStatus?.status === 'upcoming' ? saleStatus.startTime : undefined,
+  );
+  const saleHasStarted =
+    saleStatus?.status === 'upcoming' && remainingStartMs <= 0;
+  const effectiveStatus = saleHasStarted ? 'active' : saleStatus?.status;
   const [userId, setUserId] = useState(
     () => localStorage.getItem(USER_ID_STORAGE_KEY) ?? '',
   );
@@ -116,7 +150,7 @@ export function BuyerPage() {
     !loading &&
     !purchasing &&
     !!saleId &&
-    saleStatus?.status === 'active' &&
+    effectiveStatus === 'active' &&
     secured !== true &&
     trimmedUserId.length > 0;
 
@@ -129,12 +163,17 @@ export function BuyerPage() {
         <p className="banner banner-error">{statusError}</p>
       )}
 
-      {saleStatus && (
+      {saleStatus && effectiveStatus && (
         <div className="sale-card">
-          <span className={`status-pill status-${saleStatus.status}`}>
-            {formatSaleStatus(saleStatus.status)}
+          <span className={`status-pill status-${effectiveStatus}`}>
+            {formatSaleStatus(effectiveStatus)}
           </span>
           <h2>{saleStatus.product}</h2>
+          {saleStatus.status === 'upcoming' && !saleHasStarted && (
+            <p className="countdown">
+              Starts in {formatCountdown(remainingStartMs)}
+            </p>
+          )}
           <dl className="sale-times">
             <div>
               <dt>Starts</dt>
