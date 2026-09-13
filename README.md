@@ -37,3 +37,33 @@ This is a Yarn workspaces monorepo:
    ```sh
    yarn migrate:db
    ```
+
+## Running tests
+
+There are four kinds of server tests, from fastest/narrowest to slowest/broadest:
+
+- **Unit** (`*.spec.ts`) — no external infra required.
+- **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres/BullMQ directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
+- **E2E** (`*.e2e-spec.ts`) — spin up the Nest app in-process and exercise it over HTTP with supertest.
+- **Stress** (`*.stress-spec.ts`) — load-test the real app under `autocannon`/concurrent load, either against real Redis directly (`redis-reserve.stress-spec.ts`) or against a clustered server process (`purchase.stress-spec.ts`, `sale-status.stress-spec.ts`).
+
+E2E and stress tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
+
+```sh
+yarn workspace server run migrate:e2e-db
+```
+
+Then, from the repo root:
+
+```sh
+yarn test:unit         # unit tests
+yarn test:integration  # integration tests (needs yarn dev's infra running)
+yarn test:e2e          # e2e tests (needs the e2e db migrated, see above)
+yarn test:stress       # stress tests (same isolated db/redis as e2e)
+```
+
+Stress tests default to a 4-worker clustered server and can be tuned via env vars, e.g.:
+
+```sh
+CLUSTER_WORKERS=8 STRESS_USERS=500 yarn test:stress
+```
