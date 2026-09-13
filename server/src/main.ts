@@ -5,7 +5,7 @@ import { AppModule } from './app.module.ts';
 import { resolveClusterWorkers } from './config/cluster-workers.ts';
 
 const CLUSTER_WORKERS = resolveClusterWorkers(
-  Number(process.env.CLUSTER_WORKERS ?? 1),
+  Number(process.env.CLUSTER_WORKERS ?? 4),
 );
 
 async function bootstrap() {
