@@ -24,9 +24,19 @@ export function formatCountdown(ms: number): string {
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
 
-  return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+  const parts = (
+    [
+      [days, 'd'],
+      [hours, 'h'],
+      [minutes, 'm'],
+      [seconds, 's'],
+    ] as const
+  )
+    .filter(([value]) => value > 0)
+    .map(([value, unit]) => `${value}${unit}`);
+
+  return parts.length > 0 ? parts.join(' ') : '0s';
 }
 
 export function toDatetimeLocalValue(date: Date): string {
