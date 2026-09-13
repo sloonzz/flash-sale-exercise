@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
+import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReconciliationService } from '../reconciliation/reconciliation.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
+import {
+  currentSaleIdKey,
+  saleKey,
+  serializeSale,
+  type CachedSale,
+} from './sale-cache.ts';
 import { SaleService } from './sale.service.ts';
 
 describe('SaleService', () => {
@@ -23,21 +30,19 @@ describe('SaleService', () => {
   const reconciliationService = {
     reconcile: vi.fn().mockResolvedValue(undefined),
   } as unknown as ReconciliationService;
+  const redis = {
+    get: vi.fn(),
+    set: vi.fn(),
+    del: vi.fn(),
+  };
   const saleService = new SaleService(
     prisma,
     reservationService,
     reconciliationService,
+    redis as unknown as Redis,
   );
 
-  function makeSale(
-    overrides: Partial<{
-      id: string;
-      productName: string;
-      totalStock: number;
-      startTime: Date;
-      endTime: Date;
-    }> = {},
-  ) {
+  function makeSale(overrides: Partial<CachedSale> = {}): CachedSale {
     const now = Date.now();
     return {
       id: randomUUID(),
@@ -49,94 +54,58 @@ describe('SaleService', () => {
     };
   }
 
+  // Stands in for the cache: only one sale is ever "current", addressed by
+  // the sale:current-id pointer plus its own sale:{id} blob.
+  function seedCurrentSale(sale?: CachedSale): void {
+    redis.get.mockImplementation((key: string) => {
+      if (key === currentSaleIdKey()) {
+        return Promise.resolve(sale ? sale.id : null);
+      }
+      if (sale && key === saleKey(sale.id)) {
+        return Promise.resolve(serializeSale(sale));
+      }
+      return Promise.resolve(null);
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('getStatus', () => {
     it('throws when no sale has been configured', async () => {
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
+      seedCurrentSale();
 
       await expect(saleService.getStatus()).rejects.toThrow(NotFoundException);
     });
 
-    it('fetches the earliest sale that is not out of stock and not done yet', async () => {
+    it('resolves the current sale via the cached pointer instead of querying Postgres', async () => {
       const sale = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
+      seedCurrentSale(sale);
       vi.mocked(reservationService.getStock).mockResolvedValue(5);
 
       await saleService.getStatus();
 
-      expect(prisma.sale.findMany).toHaveBeenCalledWith({
-        where: { endTime: { gte: expect.any(Date) } },
-        orderBy: { startTime: 'asc' },
-      });
+      expect(redis.get).toHaveBeenCalledWith(currentSaleIdKey());
+      expect(redis.get).toHaveBeenCalledWith(saleKey(sale.id));
+      expect(prisma.sale.findMany).not.toHaveBeenCalled();
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
-    });
-
-    it('selects the earliest open sale when multiple candidates exist', async () => {
-      const earlier = makeSale({ productName: 'Earlier' });
-      const later = makeSale({ productName: 'Later' });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([
-        earlier,
-        later,
-      ] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(5);
-
-      await expect(saleService.getStatus()).resolves.toMatchObject({
-        product: 'Earlier',
-      });
-      expect(reservationService.getStock).not.toHaveBeenCalledWith(later.id);
-    });
-
-    it('skips a sold-out earlier sale in favor of the next open one', async () => {
-      const soldOut = makeSale({ productName: 'Sold Out' });
-      const open = makeSale({ productName: 'Open' });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([
-        soldOut,
-        open,
-      ] as never);
-      vi.mocked(reservationService.getStock).mockImplementation((saleId) =>
-        Promise.resolve(saleId === soldOut.id ? 0 : 5),
-      );
-
-      await expect(saleService.getStatus()).resolves.toMatchObject({
-        product: 'Open',
-      });
-      expect(prisma.sale.findFirst).not.toHaveBeenCalled();
-    });
-
-    it('falls back to the sale with the latest start time when every sale is sold out', async () => {
-      const sale = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(0);
-
-      await expect(saleService.getStatus()).resolves.toMatchObject({
-        status: 'soldout',
-        product: sale.productName,
-      });
-      expect(prisma.sale.findFirst).toHaveBeenCalledWith({
-        orderBy: { startTime: 'desc' },
-      });
     });
 
     it('reports upcoming before the start time', async () => {
       const sale = makeSale({ startTime: new Date(Date.now() + 60_000) });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(null);
+      seedCurrentSale(sale);
 
       await expect(saleService.getStatus()).resolves.toMatchObject({
         status: 'upcoming',
         product: sale.productName,
       });
+      expect(reservationService.getStock).not.toHaveBeenCalled();
     });
 
-    it('reports ended after the end time by falling back to the latest start time', async () => {
+    it('reports ended after the end time', async () => {
       const sale = makeSale({ endTime: new Date(Date.now() - 60_000) });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
+      seedCurrentSale(sale);
 
       await expect(saleService.getStatus()).resolves.toMatchObject({
         status: 'ended',
@@ -146,19 +115,29 @@ describe('SaleService', () => {
 
     it('reports active within the time window while stock remains', async () => {
       const sale = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
+      seedCurrentSale(sale);
       vi.mocked(reservationService.getStock).mockResolvedValue(5);
 
       await expect(saleService.getStatus()).resolves.toMatchObject({
         status: 'active',
       });
     });
+
+    it('reports soldout within the time window once stock is exhausted', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.getStock).mockResolvedValue(0);
+
+      await expect(saleService.getStatus()).resolves.toMatchObject({
+        status: 'soldout',
+        product: sale.productName,
+      });
+    });
   });
 
   describe('purchase', () => {
     it('rejects as not_active when no sale has been configured', async () => {
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
+      seedCurrentSale();
 
       await expect(saleService.purchase('user-1', 'any-sale-id')).resolves.toBe(
         'not_active',
@@ -168,8 +147,7 @@ describe('SaleService', () => {
 
     it('rejects as not_active before the sale starts', async () => {
       const sale = makeSale({ startTime: new Date(Date.now() + 60_000) });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(null);
+      seedCurrentSale(sale);
 
       await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
         'not_active',
@@ -177,10 +155,9 @@ describe('SaleService', () => {
       expect(reservationService.reserve).not.toHaveBeenCalled();
     });
 
-    it('rejects as ended after the sale ends, without touching Redis', async () => {
+    it('rejects as ended after the sale ends, without attempting a reservation', async () => {
       const sale = makeSale({ endTime: new Date(Date.now() - 60_000) });
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.sale.findFirst).mockResolvedValue(sale as never);
+      seedCurrentSale(sale);
 
       await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
         'ended',
@@ -190,8 +167,7 @@ describe('SaleService', () => {
 
     it('delegates to the Reservation module while the sale is active', async () => {
       const sale = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([sale] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+      seedCurrentSale(sale);
       vi.mocked(reservationService.reserve).mockResolvedValue('success');
 
       await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
@@ -205,8 +181,7 @@ describe('SaleService', () => {
 
     it('rejects as invalid_sale when the caller purchases against a sale that is no longer current', async () => {
       const current = makeSale();
-      vi.mocked(prisma.sale.findMany).mockResolvedValue([current] as never);
-      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+      seedCurrentSale(current);
 
       await expect(
         saleService.purchase('user-1', 'a-stale-sale-id'),
@@ -245,9 +220,10 @@ describe('SaleService', () => {
       endTime: new Date(Date.now() + 60_000),
     };
 
-    it('appends a new sale row rather than overwriting the existing one', async () => {
+    it('appends a new sale row and caches it as the current sale', async () => {
       const created = makeSale(input);
       vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
+      redis.get.mockResolvedValue(null);
 
       await saleService.createSale(input);
 
@@ -255,7 +231,29 @@ describe('SaleService', () => {
       expect(prisma.sale.update).not.toHaveBeenCalled();
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
+      expect(redis.set).toHaveBeenCalledWith(
+        saleKey(created.id),
+        serializeSale(created),
+      );
+      expect(redis.set).toHaveBeenCalledWith(currentSaleIdKey(), created.id);
+      expect(redis.del).not.toHaveBeenCalled();
       expect(reconciliationService.reconcile).toHaveBeenCalledWith(created.id);
+    });
+
+    it('evicts the previous current sale from the cache when a new one is created', async () => {
+      const previousId = randomUUID();
+      const created = makeSale(input);
+      vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
+      redis.get.mockResolvedValue(previousId);
+
+      await saleService.createSale(input);
+
+      expect(redis.del).toHaveBeenCalledWith(saleKey(previousId));
+      expect(redis.set).toHaveBeenCalledWith(
+        saleKey(created.id),
+        serializeSale(created),
+      );
+      expect(redis.set).toHaveBeenCalledWith(currentSaleIdKey(), created.id);
     });
   });
 });

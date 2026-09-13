@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -13,19 +16,15 @@ import {
   reservedUsersKey,
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
+import { currentSaleIdKey, saleKey } from '../src/sale/sale-cache.ts';
+
+const execFileAsync = promisify(execFile);
+const CLIENT_SCRIPT = fileURLToPath(
+  new URL('./support/autocannon-client.ts', import.meta.url),
+);
 
 const ADMIN_KEY = 'test-admin-key';
 
-// How to run: `yarn workspace server run test:stress`. Override the load
-// shape with STRESS_STOCK / STRESS_USERS env vars, e.g.
-// `STRESS_STOCK=500 STRESS_USERS=2500 yarn workspace server run test:stress`
-// for a heavier run (STRESS_STOCK must stay below STRESS_USERS -- that gap
-// is what oversubscribes the sale). Expected outcome for both scenarios
-// below: the success count lands exactly on the configured stock (oversell
-// test) or exactly 1 (duplicate-reservation test), Redis's stock counter
-// never goes negative, and Postgres's Order rows agree with Redis once the
-// queue drains — with no request left unanswered by the server under the
-// concurrent load.
 const TOTAL_STOCK = Number(process.env.STRESS_STOCK ?? 50);
 const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
 
@@ -48,12 +47,6 @@ describe('Purchase under load (stress)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
-      // The purchase endpoint's per-IP rate limit (20 req/s, see
-      // sale.module.ts) exists to protect the API from abuse, not to police
-      // the oversell/duplication guarantees this suite exists to stress --
-      // every request below originates from this one process, so left
-      // enabled it would 429 most of the load instead of exercising the
-      // reservation logic under real concurrency.
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -72,8 +65,10 @@ describe('Purchase under load (stress)', () => {
     const keys = saleIds.flatMap((saleId) => [
       stockKey(saleId),
       reservedUsersKey(saleId),
+      saleKey(saleId),
     ]);
-    if (keys.length > 0) await redis.del(...keys);
+    keys.push(currentSaleIdKey());
+    await redis.del(...keys);
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
     saleIds.length = 0;
@@ -101,39 +96,23 @@ describe('Purchase under load (stress)', () => {
     return response.body.id;
   }
 
-  function fireConcurrentPurchases(
+  // Runs autocannon in a separate OS process from the server under test.
+  async function fireConcurrentPurchases(
     amount: number,
-    userIdFor: (requestIndex: number) => string,
+    userIds: 'unique' | 'duplicate',
     saleId: string,
   ): Promise<{
     results: Array<PurchaseResultOrNull>;
     runResult: autocannon.Result;
   }> {
-    const results: Array<PurchaseResultOrNull> = [];
-    let requestIndex = 0;
+    const config = JSON.stringify({ url: baseUrl, amount, saleId, userIds });
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [CLIENT_SCRIPT, config],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
 
-    return autocannon({
-      url: baseUrl,
-      connections: amount,
-      amount,
-      requests: [
-        {
-          method: 'POST',
-          setupRequest: (req) => ({
-            ...req,
-            path: '/purchase',
-            headers: { ...req.headers, 'content-type': 'application/json' },
-            body: JSON.stringify({
-              userId: userIdFor(requestIndex++),
-              saleId,
-            }),
-          }),
-          onResponse: (status, body) => {
-            results.push(status === 201 ? JSON.parse(body).result : null);
-          },
-        },
-      ],
-    }).then((runResult) => ({ results, runResult }));
+    return JSON.parse(stdout);
   }
 
   it(`grants exactly ${TOTAL_STOCK} of ${CONCURRENT_USERS} concurrent unique-user purchases, with zero oversell`, async () => {
@@ -141,7 +120,7 @@ describe('Purchase under load (stress)', () => {
 
     const { results, runResult } = await fireConcurrentPurchases(
       CONCURRENT_USERS,
-      (i) => `stress-user-${i}`,
+      'unique',
       saleId,
     );
 
@@ -186,11 +165,10 @@ describe('Purchase under load (stress)', () => {
     // CONTEXT.md), which a naive stock-only check could still violate
     // under a race between two requests from the same user.
     const saleId = await createSale(CONCURRENT_USERS);
-    const userId = 'stress-user-duplicate';
 
     const { results, runResult } = await fireConcurrentPurchases(
       CONCURRENT_USERS,
-      () => userId,
+      'duplicate',
       saleId,
     );
 
