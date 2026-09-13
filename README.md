@@ -38,6 +38,21 @@ This is a Yarn workspaces monorepo:
    yarn migrate:db
    ```
 
+5. Copy env file:
+
+   ```sh
+   cp server/.env.example server/.env
+   ```
+
+## User flow
+
+With the app running (`yarn dev`), a typical walkthrough:
+
+1. Go to `/admin` and log in with the admin key (`change-me` by default, from `server/.env.example`'s `ADMIN_KEY`).
+2. Fill up and create a sale using the admin sale form.
+3. Go back to `/` (the "Sale" nav link) and enter a user name.
+4. Attempt a purchase.
+
 ## Running tests
 
 There are four kinds of server tests, from fastest/narrowest to slowest/broadest:
