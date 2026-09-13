@@ -8,7 +8,7 @@ import {
 } from './persist-order-job.ts';
 import { persistOrder } from './persist-order.processor.ts';
 
-@Processor(PERSIST_ORDER_QUEUE)
+@Processor(PERSIST_ORDER_QUEUE, { lockDuration: 120_000 })
 export class OrderQueueConsumer extends WorkerHost {
   private readonly logger = new Logger(OrderQueueConsumer.name);
 

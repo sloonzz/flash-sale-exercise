@@ -10,7 +10,7 @@ import {
   reservedUsersKey,
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
-import { currentSaleIdKey, saleKey } from '../src/sale/sale-cache.ts';
+import { currentSaleKey } from '../src/sale/sale-cache.ts';
 
 const ADMIN_KEY = 'test-admin-key';
 
@@ -36,9 +36,8 @@ describe('Sale API (e2e)', () => {
     const keys = saleIds.flatMap((saleId) => [
       stockKey(saleId),
       reservedUsersKey(saleId),
-      saleKey(saleId),
     ]);
-    keys.push(currentSaleIdKey());
+    keys.push(currentSaleKey());
     await redis.del(...keys);
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });

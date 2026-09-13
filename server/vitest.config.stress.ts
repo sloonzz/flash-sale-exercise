@@ -19,19 +19,8 @@ export default defineConfig({
     root: './',
     include: ['**/*.stress-spec.ts'],
     env: e2eEnv,
-    // Deliberately no globalSetup here: unlike the e2e suite, this suite
-    // does not TRUNCATE the shared tables / FLUSHDB Redis on start. Doing so
-    // would race destructively with an e2e run against the same isolated
-    // DB (whichever suite's setup runs second wipes state out from under
-    // the other). Every assertion below already scopes reads to the exact
-    // sale ID this run created, so a blanket wipe isn't needed for
-    // correctness -- each test's own afterEach cleans up what it made.
-    // A stress run fires hundreds of concurrent requests and waits for the
-    // BullMQ consumer to drain the resulting order-persistence queue, which
-    // takes well beyond vitest's default 5s test timeout.
     testTimeout: 120_000,
-    // Runs are report-oriented (throughput/latency, oversell assertions) and
-    // not meant to be parallelized against each other.
+    hookTimeout: 120_000,
     fileParallelism: false,
   },
 });

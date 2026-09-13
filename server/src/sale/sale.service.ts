@@ -13,8 +13,7 @@ import { REDIS_CLIENT } from '../redis/redis.constants.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 import {
   type CachedSale,
-  currentSaleIdKey,
-  saleKey,
+  currentSaleKey,
   serializeSale,
   deserializeSale,
 } from './sale-cache.ts';
@@ -28,33 +27,13 @@ export class SaleService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  // Only one sale is ever "current" -- creating a new one evicts the
-  // previous one's cache entry (see cacheSale below), so there's no
-  // multi-sale priority scan to run and no invalidation to reason about.
   private async getCurrentSale(): Promise<CachedSale | null> {
-    const currentSaleId = await this.redis.get(currentSaleIdKey());
-    return currentSaleId === null
-      ? null
-      : this.getCachedSaleById(currentSaleId);
-  }
-
-  private async getCachedSaleById(saleId: string): Promise<CachedSale | null> {
-    const raw = await this.redis.get(saleKey(saleId));
+    const raw = await this.redis.get(currentSaleKey());
     return raw === null ? null : deserializeSale(raw);
   }
 
   private async cacheSale(sale: CachedSale): Promise<void> {
-    const previousId = await this.redis.get(currentSaleIdKey());
-
-    const writes: Promise<unknown>[] = [
-      this.redis.set(saleKey(sale.id), serializeSale(sale)),
-      this.redis.set(currentSaleIdKey(), sale.id),
-    ];
-    if (previousId !== null && previousId !== sale.id) {
-      writes.push(this.redis.del(saleKey(previousId)));
-    }
-
-    await Promise.all(writes);
+    await this.redis.set(currentSaleKey(), serializeSale(sale));
   }
 
   async getStatus(): Promise<SaleStatusResponse> {
@@ -73,15 +52,12 @@ export class SaleService {
   }
 
   async purchase(userId: string, saleId: string): Promise<PurchaseResult> {
-    const sale = await this.getCachedSaleById(saleId);
+    const sale = await this.getCurrentSale();
     if (!sale) {
-      // sale:{saleId} is only ever absent because no sale has been created
-      // yet, or because a newer sale has since evicted it -- check which by
-      // asking whether *any* sale is current. This keeps the common case
-      // (the requested id matches the current sale) down to a single Redis
-      // round trip instead of always resolving "current" first.
-      const currentSaleId = await this.redis.get(currentSaleIdKey());
-      return currentSaleId === null ? 'not_active' : 'invalid_sale';
+      return 'not_active';
+    }
+    if (sale.id !== saleId) {
+      return 'invalid_sale';
     }
 
     switch (this.classifyWindow(sale)) {

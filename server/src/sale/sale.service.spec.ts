@@ -6,8 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReconciliationService } from '../reconciliation/reconciliation.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 import {
-  currentSaleIdKey,
-  saleKey,
+  currentSaleKey,
   serializeSale,
   type CachedSale,
 } from './sale-cache.ts';
@@ -33,7 +32,6 @@ describe('SaleService', () => {
   const redis = {
     get: vi.fn(),
     set: vi.fn(),
-    del: vi.fn(),
   };
   const saleService = new SaleService(
     prisma,
@@ -54,18 +52,8 @@ describe('SaleService', () => {
     };
   }
 
-  // Stands in for the cache: only one sale is ever "current", addressed by
-  // the sale:current-id pointer plus its own sale:{id} blob.
   function seedCurrentSale(sale?: CachedSale): void {
-    redis.get.mockImplementation((key: string) => {
-      if (key === currentSaleIdKey()) {
-        return Promise.resolve(sale ? sale.id : null);
-      }
-      if (sale && key === saleKey(sale.id)) {
-        return Promise.resolve(serializeSale(sale));
-      }
-      return Promise.resolve(null);
-    });
+    redis.get.mockResolvedValue(sale ? serializeSale(sale) : null);
   }
 
   beforeEach(() => {
@@ -79,15 +67,14 @@ describe('SaleService', () => {
       await expect(saleService.getStatus()).rejects.toThrow(NotFoundException);
     });
 
-    it('resolves the current sale via the cached pointer instead of querying Postgres', async () => {
+    it('resolves the current sale from the cache instead of querying Postgres', async () => {
       const sale = makeSale();
       seedCurrentSale(sale);
       vi.mocked(reservationService.getStock).mockResolvedValue(5);
 
       await saleService.getStatus();
 
-      expect(redis.get).toHaveBeenCalledWith(currentSaleIdKey());
-      expect(redis.get).toHaveBeenCalledWith(saleKey(sale.id));
+      expect(redis.get).toHaveBeenCalledWith(currentSaleKey());
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
     });
@@ -220,10 +207,9 @@ describe('SaleService', () => {
       endTime: new Date(Date.now() + 60_000),
     };
 
-    it('appends a new sale row and caches it as the current sale', async () => {
+    it('appends a new sale row and overwrites the cached current sale', async () => {
       const created = makeSale(input);
       vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
-      redis.get.mockResolvedValue(null);
 
       await saleService.createSale(input);
 
@@ -232,28 +218,10 @@ describe('SaleService', () => {
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
       expect(redis.set).toHaveBeenCalledWith(
-        saleKey(created.id),
+        currentSaleKey(),
         serializeSale(created),
       );
-      expect(redis.set).toHaveBeenCalledWith(currentSaleIdKey(), created.id);
-      expect(redis.del).not.toHaveBeenCalled();
       expect(reconciliationService.reconcile).toHaveBeenCalledWith(created.id);
-    });
-
-    it('evicts the previous current sale from the cache when a new one is created', async () => {
-      const previousId = randomUUID();
-      const created = makeSale(input);
-      vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
-      redis.get.mockResolvedValue(previousId);
-
-      await saleService.createSale(input);
-
-      expect(redis.del).toHaveBeenCalledWith(saleKey(previousId));
-      expect(redis.set).toHaveBeenCalledWith(
-        saleKey(created.id),
-        serializeSale(created),
-      );
-      expect(redis.set).toHaveBeenCalledWith(currentSaleIdKey(), created.id);
     });
   });
 });

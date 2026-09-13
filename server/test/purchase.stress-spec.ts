@@ -1,22 +1,25 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import autocannon from 'autocannon';
+import type { Queue } from 'bullmq';
 import type { PurchaseResult } from 'common';
 import { Redis } from 'ioredis';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
 import { REDIS_URL } from '../src/config/env.ts';
+import { PERSIST_ORDER_QUEUE } from '../src/order/persist-order-job.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import {
   reservedUsersKey,
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
-import { currentSaleIdKey, saleKey } from '../src/sale/sale-cache.ts';
+import { currentSaleKey } from '../src/sale/sale-cache.ts';
 
 const execFileAsync = promisify(execFile);
 const CLIENT_SCRIPT = fileURLToPath(
@@ -37,6 +40,7 @@ if (TOTAL_STOCK >= CONCURRENT_USERS) {
 describe('Purchase under load (stress)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let persistOrderQueue: Queue;
   let baseUrl: string;
   const redis = new Redis(REDIS_URL);
   const saleIds: string[] = [];
@@ -55,6 +59,7 @@ describe('Purchase under load (stress)', () => {
     await app.init();
     await app.listen(0);
     prisma = app.get(PrismaService);
+    persistOrderQueue = app.get(getQueueToken(PERSIST_ORDER_QUEUE));
 
     const address = app.getHttpServer().address();
     const port = typeof address === 'string' ? address : address.port;
@@ -62,12 +67,25 @@ describe('Purchase under load (stress)', () => {
   });
 
   afterEach(async () => {
+    await expect
+      .poll(
+        async () => {
+          const counts = await persistOrderQueue.getJobCounts(
+            'waiting',
+            'active',
+            'delayed',
+          );
+          return counts.waiting + counts.active + counts.delayed;
+        },
+        { timeout: 60_000, interval: 100 },
+      )
+      .toBe(0);
+
     const keys = saleIds.flatMap((saleId) => [
       stockKey(saleId),
       reservedUsersKey(saleId),
-      saleKey(saleId),
     ]);
-    keys.push(currentSaleIdKey());
+    keys.push(currentSaleKey());
     await redis.del(...keys);
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
@@ -124,24 +142,15 @@ describe('Purchase under load (stress)', () => {
       saleId,
     );
 
-    // No request left unanswered -- the system stayed responsive under
-    // the concurrent load.
     expect(results).toHaveLength(CONCURRENT_USERS);
     expect(results.every((result) => result !== null)).toBe(true);
 
-    // Zero oversell: never more granted reservations than configured
-    // stock, and never fewer -- exactly one per unit of stock.
     const successes = results.filter((result) => result === 'success');
     expect(successes).toHaveLength(TOTAL_STOCK);
 
-    // The Redis reservation counter -- the authoritative, synchronous
-    // source of truth (see ADR-0001) -- must land at exactly zero, never
-    // negative.
     await expect(redis.get(stockKey(saleId))).resolves.toBe('0');
 
-    // Wait for the async BullMQ consumer to drain the order-persistence
-    // queue, then confirm Postgres agrees: one durable Order per granted
-    // reservation, no duplicates.
+    // Wait for the async BullMQ consumer to persist the order data
     await expect
       .poll(() => prisma.order.count({ where: { saleId } }), {
         timeout: 60_000,
@@ -159,11 +168,44 @@ describe('Purchase under load (stress)', () => {
     console.log(autocannon.printResult(runResult));
   });
 
+  it(`grants all ${CONCURRENT_USERS} concurrent unique-user purchases when stock far exceeds demand`, async () => {
+    const abundantStock = CONCURRENT_USERS * 10;
+    const saleId = await createSale(abundantStock);
+
+    const { results, runResult } = await fireConcurrentPurchases(
+      CONCURRENT_USERS,
+      'unique',
+      saleId,
+    );
+
+    expect(results).toHaveLength(CONCURRENT_USERS);
+    expect(results.every((result) => result !== null)).toBe(true);
+
+    const successes = results.filter((result) => result === 'success');
+    expect(successes).toHaveLength(CONCURRENT_USERS);
+
+    await expect(redis.get(stockKey(saleId))).resolves.toBe(
+      String(abundantStock - CONCURRENT_USERS),
+    );
+
+    await expect
+      .poll(() => prisma.order.count({ where: { saleId } }), {
+        timeout: 60_000,
+        interval: 100,
+      })
+      .toBe(CONCURRENT_USERS);
+
+    const distinctUsers = await prisma.order.findMany({
+      where: { saleId },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    expect(distinctUsers).toHaveLength(CONCURRENT_USERS);
+
+    console.log(autocannon.printResult(runResult));
+  });
+
   it(`grants exactly 1 of ${CONCURRENT_USERS} concurrent purchase attempts from the same user`, async () => {
-    // Stock is deliberately not the constraint here -- this test isolates
-    // the *other* half of the Reservation invariant (one-per-user, see
-    // CONTEXT.md), which a naive stock-only check could still violate
-    // under a race between two requests from the same user.
     const saleId = await createSale(CONCURRENT_USERS);
 
     const { results, runResult } = await fireConcurrentPurchases(

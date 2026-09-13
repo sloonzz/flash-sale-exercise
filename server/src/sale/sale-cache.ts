@@ -6,12 +6,8 @@ export interface CachedSale {
   endTime: Date;
 }
 
-export function saleKey(saleId: string): string {
-  return `sale:${saleId}`;
-}
-
-export function currentSaleIdKey(): string {
-  return 'sale:current-id';
+export function currentSaleKey(): string {
+  return 'sale:current';
 }
 
 export function serializeSale(sale: CachedSale): string {
