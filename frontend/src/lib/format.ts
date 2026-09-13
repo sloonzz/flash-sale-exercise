@@ -20,14 +20,13 @@ export function formatDateTime(iso: string): string {
 
 export function formatCountdown(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   const pad = (n: number) => String(n).padStart(2, '0');
 
-  return hours > 0
-    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
-    : `${minutes}:${pad(seconds)}`;
+  return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
 }
 
 export function toDatetimeLocalValue(date: Date): string {
