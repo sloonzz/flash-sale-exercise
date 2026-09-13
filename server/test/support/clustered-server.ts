@@ -26,7 +26,7 @@ export async function startClusteredServer(
 ): Promise<ClusteredServer> {
   const serverProcess: ChildProcess = fork(SERVER_ENTRY, [], {
     execArgv: ['--import', '@swc-node/register/esm-register'],
-    env: { ...process.env, PORT: '0', ...env },
+    env: { ...process.env, PORT: '0', DISABLE_NEST_LOGS: 'true', ...env },
   });
 
   const port = await new Promise<number>((resolve, reject) => {

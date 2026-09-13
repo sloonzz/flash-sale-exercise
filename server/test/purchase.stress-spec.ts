@@ -16,6 +16,7 @@ import {
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
 import { currentSaleKey } from '../src/sale/sale-cache.ts';
+import { resolveClusterWorkers } from '../src/config/cluster-workers.ts';
 import {
   startClusteredServer,
   type ClusteredServer,
@@ -31,7 +32,9 @@ const ADMIN_KEY = 'test-admin-key';
 const TOTAL_STOCK = Number(process.env.STRESS_STOCK ?? 50);
 const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
 const CLIENT_SHARDS = Number(process.env.STRESS_CLIENT_SHARDS ?? 4);
-const CLUSTER_WORKERS = Number(process.env.CLUSTER_WORKERS ?? 4);
+const CLUSTER_WORKERS = resolveClusterWorkers(
+  Number(process.env.CLUSTER_WORKERS ?? 4),
+);
 
 if (TOTAL_STOCK >= CONCURRENT_USERS) {
   throw new Error(

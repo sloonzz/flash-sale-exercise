@@ -2,11 +2,16 @@ import 'dotenv/config';
 import cluster from 'node:cluster';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.ts';
+import { resolveClusterWorkers } from './config/cluster-workers.ts';
 
-const CLUSTER_WORKERS = Number(process.env.CLUSTER_WORKERS ?? 1);
+const CLUSTER_WORKERS = resolveClusterWorkers(
+  Number(process.env.CLUSTER_WORKERS ?? 1),
+);
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: process.env.DISABLE_NEST_LOGS === 'true' ? false : undefined,
+  });
   app.enableCors();
   const server = await app.listen(process.env.PORT ?? 3000);
   const address = server.address();

@@ -9,6 +9,7 @@ import { DATABASE_URL, REDIS_URL } from '../src/config/env.ts';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { stockKey } from '../src/reservation/reservation-keys.ts';
 import { currentSaleKey } from '../src/sale/sale-cache.ts';
+import { resolveClusterWorkers } from '../src/config/cluster-workers.ts';
 import {
   startClusteredServer,
   type ClusteredServer,
@@ -22,7 +23,9 @@ const CLIENT_SCRIPT = fileURLToPath(
 const ADMIN_KEY = 'test-admin-key';
 const CONCURRENT_USERS = Number(process.env.STRESS_USERS ?? 250);
 const CLIENT_SHARDS = Number(process.env.STRESS_CLIENT_SHARDS ?? 4);
-const CLUSTER_WORKERS = Number(process.env.CLUSTER_WORKERS ?? 4);
+const CLUSTER_WORKERS = resolveClusterWorkers(
+  Number(process.env.CLUSTER_WORKERS ?? 4),
+);
 
 // Runs against a real, clustered server process (see clustered-server.ts)
 // rather than an in-process Nest TestingModule, so the suite matches how
