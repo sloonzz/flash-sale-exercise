@@ -29,9 +29,6 @@ describe('Sale API (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
-    // Bind a real port up front: supertest lazily listens on first request
-    // otherwise, and concurrent requests racing that lazy bind intermittently
-    // reset each other's connections.
     await app.listen(0);
     prisma = app.get(PrismaService);
   });
@@ -42,11 +39,7 @@ describe('Sale API (e2e)', () => {
       reservedUsersKey(saleId),
     ]);
     keys.push(currentSaleKey());
-    // The ThrottlerGuard's counters are stored in Redis under
-    // `{<route-hash>:<throttlerName>}:hits` / `:blocked` and are shared across
-    // every test in this file (one app instance for the whole suite). Drop
-    // them so one test's hits never eat into the next test's rate-limit
-    // budget, regardless of how fast the suite runs.
+    // Reset ThrottlerGuard counters so one test's hits never eat into the next test's rate-limit budget.
     keys.push(
       ...(await redis.keys('{*}:hits')),
       ...(await redis.keys('{*}:blocked')),
