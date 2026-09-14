@@ -7,7 +7,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// The stress suite targets the same isolated database and Redis logical DB
+// The performance suite targets the same isolated database and Redis logical DB
 // as the e2e suite (see .env.e2e) so a load run never reads or overwrites
 // the dev environment's data.
 const e2eEnv = parse(fs.readFileSync(path.resolve(dirname, '.env.e2e')));
@@ -17,7 +17,7 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['**/*.spike-spec.ts', '**/*.stress-spec.ts'],
+    include: ['**/*.performance-spec.ts'],
     env: e2eEnv,
     testTimeout: 120_000,
     hookTimeout: 120_000,

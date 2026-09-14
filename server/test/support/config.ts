@@ -1,37 +1,42 @@
 import { resolveClusterWorkers } from '../../src/config/cluster-workers.ts';
 
-export const CONCURRENT_SPIKE_USERS = Number(
-  process.env.CONCURRENT_SPIKE_USERS ?? 10000,
-);
+export interface LoadProfile {
+  /** Spike = short burst of many connections; stress = fewer connections sustained for longer. */
+  name: 'spike' | 'stress';
+  connections: number;
+  durationSeconds: number;
+}
 
-export const PURCHASE_STRESS_CONNECTIONS = Number(
-  process.env.STRESS_PURCHASE_CONNECTIONS ?? 1000,
-);
-export const PURCHASE_STRESS_DURATION_SECONDS = Number(
-  process.env.STRESS_PURCHASE_DURATION ?? 60,
-);
-export const STATUS_STRESS_CONNECTIONS = Number(
-  process.env.STRESS_STATUS_CONNECTIONS ?? 2000,
-);
-export const STATUS_STRESS_DURATION_SECONDS = Number(
-  process.env.STRESS_STATUS_DURATION ?? 60,
-);
+export const SPIKE_CONNECTIONS = Number(process.env.SPIKE_CONNECTIONS ?? 1000);
+export const SPIKE_DURATION = Number(process.env.SPIKE_DURATION ?? 15);
+export const STRESS_CONNECTIONS = Number(process.env.STRESS_CONNECTIONS ?? 100);
+export const STRESS_DURATION = Number(process.env.STRESS_DURATION ?? 60);
 
-export const AUTOCANNON_WORKERS = Number(
-  process.env.STRESS_AUTOCANNON_WORKERS ?? 4,
-);
+export const AUTOCANNON_WORKERS = Number(process.env.AUTOCANNON_WORKERS ?? 5);
 export const CLUSTER_WORKERS = resolveClusterWorkers(
   Number(process.env.CLUSTER_WORKERS ?? 4),
 );
 
+export const LOAD_PROFILES: LoadProfile[] = [
+  {
+    name: 'spike',
+    connections: SPIKE_CONNECTIONS,
+    durationSeconds: SPIKE_DURATION,
+  },
+  {
+    name: 'stress',
+    connections: STRESS_CONNECTIONS,
+    durationSeconds: STRESS_DURATION,
+  },
+];
+
 for (const [amount, label] of [
-  [CONCURRENT_SPIKE_USERS, 'STRESS_USERS'],
-  [PURCHASE_STRESS_CONNECTIONS, 'STRESS_PURCHASE_CONNECTIONS'],
-  [STATUS_STRESS_CONNECTIONS, 'STRESS_STATUS_CONNECTIONS'],
+  [SPIKE_CONNECTIONS, 'SPIKE_CONNECTIONS'],
+  [STRESS_CONNECTIONS, 'STRESS_CONNECTIONS'],
 ] as const) {
   if (amount % AUTOCANNON_WORKERS !== 0) {
     throw new Error(
-      `${label} (${amount}) must be evenly divisible by STRESS_AUTOCANNON_WORKERS (${AUTOCANNON_WORKERS}) -- autocannon divides connections/amount evenly across workers, so an uneven split would silently drop requests.`,
+      `${label} (${amount}) must be evenly divisible by AUTOCANNON_WORKERS (${AUTOCANNON_WORKERS}) -- autocannon divides connections/amount evenly across workers, so an uneven split would silently drop requests.`,
     );
   }
 }

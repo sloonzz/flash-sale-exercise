@@ -60,9 +60,9 @@ There are four kinds of server tests, from fastest/narrowest to slowest/broadest
 - **Unit** (`*.spec.ts`) — no external infra required.
 - **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres/BullMQ directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
 - **E2E** (`*.e2e-spec.ts`) — spin up the Nest app in-process and exercise it over HTTP with supertest.
-- **Stress** (`*.stress-spec.ts`) — load-test the real app under `autocannon`/concurrent load, either against real Redis directly (`redis-reserve.stress-spec.ts`) or against a clustered server process (`purchase.stress-spec.ts`, `sale-status.stress-spec.ts`).
+- **Performance** (`*.performance-spec.ts`) — load-test the real app under `autocannon`/concurrent load, either against real Redis directly (`redis-reserve.performance-spec.ts`) or against a clustered server process (`purchase.performance-spec.ts`, `sale-status.performance-spec.ts`). Each HTTP suite runs under two load profiles: a short **spike** of many connections and a longer **stress** run with fewer connections.
 
-E2E and stress tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
+E2E and performance tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
 
 ```sh
 yarn workspace server run migrate:e2e-db
@@ -74,7 +74,7 @@ Then, from the repo root:
 yarn test:unit         # unit tests
 yarn test:integration  # integration tests (needs yarn dev's infra running)
 yarn test:e2e          # e2e tests (needs the e2e db migrated, see above)
-yarn test:stress       # stress tests (same isolated db/redis as e2e)
+yarn test:performance  # performance tests (same isolated db/redis as e2e)
 ```
 
-Stress tests default to a 4-worker clustered server and can be tuned via env vars under .env.e2e:
+Performance tests default to a 4-worker clustered server and can be tuned via env vars under `.env.e2e.` see the `test/support/config.ts` file for more details.
