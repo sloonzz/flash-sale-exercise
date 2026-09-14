@@ -20,6 +20,8 @@ model Sale {
 
   orders Order[]
 
+  @@index([createdAt])
+  @@index([endTime])
   @@map("sales")
 }
 
