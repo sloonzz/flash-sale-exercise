@@ -29,6 +29,7 @@ describe('Sale API (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
+    await app.listen(0);
     prisma = app.get(PrismaService);
   });
 
@@ -38,6 +39,11 @@ describe('Sale API (e2e)', () => {
       reservedUsersKey(saleId),
     ]);
     keys.push(currentSaleKey());
+    // Reset ThrottlerGuard counters so one test's hits never eat into the next test's rate-limit budget.
+    keys.push(
+      ...(await redis.keys('{*}:hits')),
+      ...(await redis.keys('{*}:blocked')),
+    );
     await redis.del(...keys);
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
@@ -387,6 +393,48 @@ describe('Sale API (e2e)', () => {
         .expect(200);
 
       expect(response.body.secured).toBe(false);
+    });
+
+    it('grants exactly `stock` successes under concurrent purchase requests, with zero oversell surviving into the durable Order count', async () => {
+      const totalStock = 4;
+      // Stays comfortably under the ThrottlerGuard's 20 req/1000ms limit on
+      // /purchase so this burst itself never gets rate-limited.
+      const attempts = 12;
+      const saleId = await createSale({ totalStock });
+
+      const userIds = Array.from(
+        { length: attempts },
+        (_, i) => `concurrent-user-${i}`,
+      );
+
+      const responses = await Promise.all(
+        userIds.map((userId) =>
+          request(app.getHttpServer())
+            .post('/purchase')
+            .send({ userId, saleId })
+            .expect(201),
+        ),
+      );
+
+      const results = responses.map((response) => response.body.result);
+      const successfulUserIds = userIds.filter(
+        (_, i) => results[i] === 'success',
+      );
+
+      expect(successfulUserIds).toHaveLength(totalStock);
+      expect(new Set(successfulUserIds).size).toBe(totalStock);
+      expect(results.filter((result) => result === 'sold_out')).toHaveLength(
+        attempts - totalStock,
+      );
+
+      await expect(redis.get(stockKey(saleId))).resolves.toBe('0');
+
+      await Promise.all(
+        successfulUserIds.map((userId) => waitForOrder(saleId, userId)),
+      );
+      await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(
+        totalStock,
+      );
     });
   });
 });
