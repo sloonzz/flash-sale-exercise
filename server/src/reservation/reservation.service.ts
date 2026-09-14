@@ -51,20 +51,27 @@ export class ReservationService {
     )) as ReservationResult;
 
     if (result === 'success') {
-      try {
-        await this.orderQueueProducer.enqueuePersistOrder(
-          saleId,
-          userId,
-          new Date(),
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to enqueue persist-order job for sale ${saleId}, user ${userId}`,
-          error,
-        );
-      }
+      void this.enqueuePersistOrder(saleId, userId);
     }
 
     return result;
+  }
+
+  private async enqueuePersistOrder(
+    saleId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.orderQueueProducer.enqueuePersistOrder(
+        saleId,
+        userId,
+        new Date(),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue persist-order job for sale ${saleId}, user ${userId}`,
+        error,
+      );
+    }
   }
 }

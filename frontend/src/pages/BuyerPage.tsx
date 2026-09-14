@@ -9,7 +9,11 @@ import {
   useSecuredQuery,
 } from '../api/queries/useSecuredQuery.ts';
 import { usePurchaseMutation } from '../api/mutations/usePurchaseMutation.ts';
-import { formatDateTime, formatSaleStatus } from '../lib/format.ts';
+import {
+  formatCountdown,
+  formatDateTime,
+  formatSaleStatus,
+} from '../lib/format.ts';
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
 const SECURED_CHECK_DEBOUNCE_MS = 400;
@@ -48,11 +52,33 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
+/** Milliseconds remaining until targetIso, ticking down to 0 with no target. */
+function useCountdown(targetIso: string | undefined): number {
+  const targetMs = targetIso ? new Date(targetIso).getTime() : null;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (targetMs === null || targetMs <= Date.now()) return;
+
+    const interval = setInterval(() => {
+      const nowMs = Date.now();
+      setNow(nowMs);
+      if (targetMs <= nowMs) clearInterval(interval);
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [targetMs]);
+
+  return targetMs === null ? 0 : Math.max(0, targetMs - now);
+}
+
 export function BuyerPage() {
   const queryClient = useQueryClient();
   const saleStatusQuery = useSaleStatusQuery();
   const saleStatus = saleStatusQuery.data;
-  const saleId = saleStatus?.id;
+  const activeSale =
+    saleStatus && saleStatus.status !== 'no_sale' ? saleStatus : undefined;
+  const saleId = activeSale?.id;
   const loading = saleStatusQuery.isPending;
   function getStatusError(): string | null {
     if (!saleStatusQuery.isError) return null;
@@ -61,6 +87,14 @@ export function BuyerPage() {
       : 'Failed to load sale status';
   }
   const statusError = getStatusError();
+  const noSaleConfigured = saleStatus?.status === 'no_sale';
+
+  const remainingStartMs = useCountdown(
+    activeSale?.status === 'upcoming' ? activeSale.startTime : undefined,
+  );
+  const saleHasStarted =
+    activeSale?.status === 'upcoming' && remainingStartMs <= 0;
+  const effectiveStatus = saleHasStarted ? 'active' : activeSale?.status;
   const [userId, setUserId] = useState(
     () => localStorage.getItem(USER_ID_STORAGE_KEY) ?? '',
   );
@@ -116,7 +150,7 @@ export function BuyerPage() {
     !loading &&
     !purchasing &&
     !!saleId &&
-    saleStatus?.status === 'active' &&
+    effectiveStatus === 'active' &&
     secured !== true &&
     trimmedUserId.length > 0;
 
@@ -128,21 +162,29 @@ export function BuyerPage() {
       {statusError && !saleStatus && (
         <p className="banner banner-error">{statusError}</p>
       )}
+      {noSaleConfigured && (
+        <p className="banner banner-warning">No sales available.</p>
+      )}
 
-      {saleStatus && (
+      {activeSale && effectiveStatus && (
         <div className="sale-card">
-          <span className={`status-pill status-${saleStatus.status}`}>
-            {formatSaleStatus(saleStatus.status)}
+          <span className={`status-pill status-${effectiveStatus}`}>
+            {formatSaleStatus(effectiveStatus)}
           </span>
-          <h2>{saleStatus.product}</h2>
+          <h2>{activeSale.product}</h2>
+          {activeSale.status === 'upcoming' && !saleHasStarted && (
+            <p className="countdown">
+              Starts in {formatCountdown(remainingStartMs)}
+            </p>
+          )}
           <dl className="sale-times">
             <div>
               <dt>Starts</dt>
-              <dd>{formatDateTime(saleStatus.startTime)}</dd>
+              <dd>{formatDateTime(activeSale.startTime)}</dd>
             </div>
             <div>
               <dt>Ends</dt>
-              <dd>{formatDateTime(saleStatus.endTime)}</dd>
+              <dd>{formatDateTime(activeSale.endTime)}</dd>
             </div>
           </dl>
         </div>

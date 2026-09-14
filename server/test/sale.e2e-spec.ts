@@ -10,6 +10,7 @@ import {
   reservedUsersKey,
   stockKey,
 } from '../src/reservation/reservation-keys.ts';
+import { currentSaleKey } from '../src/sale/sale-cache.ts';
 
 const ADMIN_KEY = 'test-admin-key';
 
@@ -36,7 +37,8 @@ describe('Sale API (e2e)', () => {
       stockKey(saleId),
       reservedUsersKey(saleId),
     ]);
-    if (keys.length > 0) await redis.del(...keys);
+    keys.push(currentSaleKey());
+    await redis.del(...keys);
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
     saleIds.length = 0;
@@ -118,7 +120,7 @@ describe('Sale API (e2e)', () => {
       await expect(redis.get(stockKey(saleId))).resolves.toBe('7');
     });
 
-    it('appends a new sale row instead of overwriting the previous one, and the earliest open sale becomes current', async () => {
+    it('appends a new sale row instead of overwriting the previous one, and the newly created sale becomes current', async () => {
       const firstId = await createSale({
         totalStock: 5,
         startTime: new Date(Date.now() - 120_000),
@@ -146,79 +148,53 @@ describe('Sale API (e2e)', () => {
       const status = await request(app.getHttpServer())
         .get('/sale/status')
         .expect(200);
-      expect(status.body.product).toBe('Test Widget');
+      expect(status.body.product).toBe('Test Widget v2');
     });
 
-    it('treats the earliest open row as current, even when a later row was created first', async () => {
-      await request(app.getHttpServer())
-        .post('/admin/sales')
-        .set('x-admin-key', ADMIN_KEY)
-        .send({
-          productName: 'Later Start',
-          totalStock: 10,
-          startTime: new Date(Date.now() - 30_000).toISOString(),
-          endTime: new Date(Date.now() + 60_000).toISOString(),
-        })
-        .expect(201)
-        .then((response) => saleIds.push(response.body.id));
-
-      await request(app.getHttpServer())
-        .post('/admin/sales')
-        .set('x-admin-key', ADMIN_KEY)
-        .send({
-          productName: 'Earlier Start',
-          totalStock: 10,
-          startTime: new Date(Date.now() - 90_000).toISOString(),
-          endTime: new Date(Date.now() + 60_000).toISOString(),
-        })
-        .expect(201)
-        .then((response) => saleIds.push(response.body.id));
-
-      const status = await request(app.getHttpServer())
-        .get('/sale/status')
-        .expect(200);
-      expect(status.body.product).toBe('Earlier Start');
-    });
-
-    it('skips a sold-out earlier sale in favor of the next open one', async () => {
-      const soldOutId = await createSale({
-        productName: 'Sold Out',
-        totalStock: 1,
-        startTime: new Date(Date.now() - 120_000),
-      });
-      await request(app.getHttpServer())
-        .post('/purchase')
-        .send({ userId: 'user-1', saleId: soldOutId })
-        .expect(201);
-      await waitForOrder(soldOutId, 'user-1');
-
+    it('treats the most recently created sale as current, regardless of start time ordering', async () => {
       await createSale({
-        productName: 'Open',
-        totalStock: 10,
-        startTime: new Date(Date.now() - 60_000),
+        productName: 'Earlier Start',
+        startTime: new Date(Date.now() - 90_000),
       });
-
-      const status = await request(app.getHttpServer())
-        .get('/sale/status')
-        .expect(200);
-      expect(status.body.product).toBe('Open');
-      expect(status.body.status).toBe('active');
-    });
-
-    it('falls back to the latest start time when every sale is sold out or ended', async () => {
       await createSale({
-        totalStock: 10,
-        startTime: new Date(Date.now() - 120_000),
-        endTime: new Date(Date.now() - 60_000),
-      });
-      const openId = await createSale({
-        totalStock: 1,
+        productName: 'Later Start, created second',
         startTime: new Date(Date.now() - 30_000),
       });
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Later Start, created second');
+    });
+
+    it('evicts the previous sale on creation, even when it still has stock left', async () => {
+      const firstId = await createSale({
+        productName: 'First',
+        totalStock: 10,
+      });
+
+      await createSale({ productName: 'Second' });
+
+      const status = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(status.body.product).toBe('Second');
+
+      const response = await request(app.getHttpServer())
+        .post('/purchase')
+        .send({ userId: 'user-1', saleId: firstId })
+        .expect(201);
+      expect(response.body.result).toBe('invalid_sale');
+    });
+
+    it('reports soldout once the current sale is fully reserved', async () => {
+      const saleId = await createSale({ totalStock: 1 });
+
       await request(app.getHttpServer())
         .post('/purchase')
-        .send({ userId: 'user-1', saleId: openId })
+        .send({ userId: 'user-1', saleId })
         .expect(201);
+      await waitForOrder(saleId, 'user-1');
 
       const status = await request(app.getHttpServer())
         .get('/sale/status')

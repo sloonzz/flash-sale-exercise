@@ -1,10 +1,52 @@
 import 'dotenv/config';
+import cluster from 'node:cluster';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.ts';
+import { resolveClusterWorkers } from './config/cluster-workers.ts';
+
+const CLUSTER_WORKERS = resolveClusterWorkers(
+  Number(process.env.CLUSTER_WORKERS ?? 4),
+);
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: process.env.DISABLE_NEST_LOGS === 'true' ? false : undefined,
+  });
   app.enableCors();
-  await app.listen(process.env.PORT ?? 3000);
+  const server = await app.listen(process.env.PORT ?? 3000);
+  const address = server.address();
+  const port = typeof address === 'string' ? address : address?.port;
+  process.send?.({ ready: true, port });
 }
-await bootstrap();
+
+if (CLUSTER_WORKERS > 1 && cluster.isPrimary) {
+  const workers = new Set(
+    Array.from({ length: CLUSTER_WORKERS }, () => cluster.fork()),
+  );
+  let shuttingDown = false;
+
+  let readyCount = 0;
+  for (const worker of workers) {
+    worker.on('message', (message: { ready?: boolean; port?: number }) => {
+      if (!message.ready) return;
+      readyCount++;
+      if (readyCount === CLUSTER_WORKERS) {
+        process.send?.({ ready: true, port: message.port });
+      }
+    });
+  }
+
+  cluster.on('exit', (worker) => {
+    workers.delete(worker);
+    if (shuttingDown) return;
+    workers.add(cluster.fork());
+  });
+
+  process.on('SIGTERM', () => {
+    shuttingDown = true;
+    for (const worker of workers) worker.kill();
+    process.exit(0);
+  });
+} else {
+  await bootstrap();
+}

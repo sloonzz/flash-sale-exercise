@@ -5,3 +5,7 @@ export const DATABASE_URL =
   'postgresql://flash_sale:flash_sale@localhost:5432/flash_sale?schema=public';
 
 export const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+
+export const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 20);
+
+export const THROTTLE_DISABLED = process.env.DISABLE_THROTTLE === 'true';

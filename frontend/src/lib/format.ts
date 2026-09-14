@@ -18,6 +18,27 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+export function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts = (
+    [
+      [days, 'd'],
+      [hours, 'h'],
+      [minutes, 'm'],
+      [seconds, 's'],
+    ] as const
+  )
+    .filter(([value]) => value > 0)
+    .map(([value, unit]) => `${value}${unit}`);
+
+  return parts.length > 0 ? parts.join(' ') : '0s';
+}
+
 export function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const year = date.getFullYear();

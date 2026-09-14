@@ -16,9 +16,7 @@ export class AdminKeyGuard implements CanActivate {
     if (!providedKey) {
       throw new UnauthorizedException('Missing x-admin-key header');
     }
-    // Read directly (not via config/env.ts) so the guard is not sensitive
-    // to whether ADMIN_KEY was set before or after that module was first
-    // imported, and so it can never accidentally match with both unset.
+
     if (!process.env.ADMIN_KEY || providedKey !== process.env.ADMIN_KEY) {
       throw new ForbiddenException('Invalid x-admin-key header');
     }

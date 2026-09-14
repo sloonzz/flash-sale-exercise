@@ -2,13 +2,20 @@ import { z } from 'zod';
 
 export type SaleStatus = 'upcoming' | 'active' | 'soldout' | 'ended';
 
-export interface SaleStatusResponse {
+export interface ActiveSaleStatusResponse {
   id: string;
   status: SaleStatus;
   startTime: string;
   endTime: string;
   product: string;
 }
+
+export interface NoSaleStatusResponse {
+  status: 'no_sale';
+}
+
+export type SaleStatusResponse =
+  ActiveSaleStatusResponse | NoSaleStatusResponse;
 
 export type PurchaseResult =
   | 'success'
