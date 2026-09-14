@@ -9,3 +9,10 @@ export const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 export const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 20);
 
 export const THROTTLE_DISABLED = process.env.DISABLE_THROTTLE === 'true';
+// Bounds how long a Redis command waits for a reply. Without it, a network
+// partition doesn't fail a purchase request — ioredis's offline queue holds
+// the command open indefinitely while disconnected, so the request just
+// hangs instead of erroring.
+export const REDIS_COMMAND_TIMEOUT_MS = Number(
+  process.env.REDIS_COMMAND_TIMEOUT_MS ?? 3000,
+);

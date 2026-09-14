@@ -13,6 +13,7 @@ describe('ReservationService', () => {
     set: vi.fn(),
     get: vi.fn(),
     sismember: vi.fn(),
+    smembers: vi.fn(),
   };
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
@@ -137,5 +138,16 @@ describe('ReservationService', () => {
     await expect(service.isReserved(randomUUID(), 'user-1')).resolves.toBe(
       false,
     );
+  });
+
+  it('lists the members of the reserved-users set', async () => {
+    const saleId = randomUUID();
+    mockRedis.smembers.mockResolvedValue(['user-1', 'user-2']);
+
+    await expect(service.getReservedUsers(saleId)).resolves.toEqual([
+      'user-1',
+      'user-2',
+    ]);
+    expect(mockRedis.smembers).toHaveBeenCalledWith(reservedUsersKey(saleId));
   });
 });
