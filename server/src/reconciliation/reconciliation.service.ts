@@ -55,18 +55,16 @@ export class ReconciliationService implements OnApplicationBootstrap {
 
     const stock = sale.totalStock - orders.length;
 
-    await Promise.all([
-      this.reservationService.initializeStock(saleId, stock),
-      this.reservationService.seedReservedUsers(
-        saleId,
-        orders.map((order) => order.userId),
-      ),
-    ]);
-
-    await this.requeueOrphanedReservations(
+    // IMPORTANT: Seed first before initializing stock so we don't decrease stock for an already-reserved user
+    (await this.reservationService.seedReservedUsers(
       saleId,
-      new Set(orders.map((order) => order.userId)),
-    );
+      orders.map((order) => order.userId),
+    ),
+      await this.reservationService.initializeStock(saleId, stock),
+      await this.requeueOrphanedReservations(
+        saleId,
+        new Set(orders.map((order) => order.userId)),
+      ));
   }
 
   private async requeueOrphanedReservations(
