@@ -1,7 +1,9 @@
-import { INestApplication } from '@nestjs/common';
+import { inspect } from 'node:util';
+import { INestApplication, LoggerService } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Redis, RedisOptions } from 'ioredis';
 import request from 'supertest';
+import { afterEach } from 'vitest';
 import { AppModule } from '../../src/app.module.ts';
 import { DATABASE_URL, REDIS_URL } from '../../src/config/env.ts';
 import { PrismaService } from '../../src/prisma/prisma.service.ts';
@@ -16,32 +18,58 @@ export const ADMIN_KEY = 'test-admin-key';
 export const POSTGRES_PORT = Number(new URL(DATABASE_URL).port || 5432);
 export const REDIS_PORT = Number(new URL(REDIS_URL).port || 6379);
 
+// Fault tests error by default so we buffer the logs so they don't bury the test results
+class BufferedLogger implements LoggerService {
+  private lines: string[] = [];
+  error = (message: unknown, ...params: unknown[]) =>
+    this.push('ERROR', message, params);
+  warn = (message: unknown, ...params: unknown[]) =>
+    this.push('WARN', message, params);
+  fatal = (message: unknown, ...params: unknown[]) =>
+    this.push('FATAL', message, params);
+  log = () => {};
+  debug = () => {};
+  verbose = () => {};
+  drain(): string[] {
+    const lines = this.lines;
+    this.lines = [];
+    return lines;
+  }
+  private push(level: string, message: unknown, params: unknown[]): void {
+    const context =
+      typeof params.at(-1) === 'string' ? (params.pop() as string) : undefined;
+    const parts = [message, ...params].map((part) =>
+      typeof part === 'string' ? part : inspect(part),
+    );
+    this.lines.push(
+      `${level.padEnd(5)} ${context ? `[${context}] ` : ''}${parts.join('\n')}`,
+    );
+  }
+}
+
 export interface FaultTestContext {
   app: INestApplication;
   prisma: PrismaService;
   containerId: string;
   redis: Redis;
+  logger: BufferedLogger;
 }
 
-// Bundles the app boot, the docker container this scenario will fault-inject
-// against, and a standalone Redis client for asserting on Reservation state
-// straight from the source of truth (rather than through the app's own,
-// possibly-disconnected client).
 export async function setupFaultTest(
   containerPort: number,
   redisOptions?: RedisOptions,
 ): Promise<FaultTestContext> {
   process.env.ADMIN_KEY = ADMIN_KEY;
+  const logger = new BufferedLogger();
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .setLogger(logger)
+    .compile();
 
-  const app = moduleFixture.createNestApplication();
+  const app = moduleFixture.createNestApplication({ logger });
   await app.init();
-  // Must precede any request: without an explicit listen, supertest binds
-  // its ephemeral port lazily on the first request, which races a later
-  // concurrent request and intermittently drops it.
   await app.listen(0);
 
   const containerId = await findContainerByPublishedPort(containerPort);
@@ -51,7 +79,20 @@ export async function setupFaultTest(
     prisma: app.get(PrismaService),
     containerId,
     redis: new Redis(REDIS_URL, redisOptions ?? {}),
+    logger,
   };
+}
+
+export function dumpAppLogsOnFailure(getCtx: () => FaultTestContext): void {
+  afterEach(({ task }) => {
+    const lines = getCtx().logger.drain();
+    if (task.result?.state !== 'fail' || lines.length === 0) return;
+    process.stderr.write(
+      `\n--- app logs during failed test "${task.name}" ---\n` +
+        `${lines.join('\n')}\n` +
+        `--- end app logs ---\n`,
+    );
+  });
 }
 
 export async function teardownFaultTest(ctx: FaultTestContext): Promise<void> {
@@ -63,8 +104,6 @@ export async function cleanupFaultTestSale(
   ctx: FaultTestContext,
   saleId: string,
 ): Promise<void> {
-  // Order rows must go first: an Order still referencing this Sale would
-  // violate the foreign key once the Sale row is deleted.
   await ctx.prisma.order.deleteMany({ where: { saleId } });
   await ctx.prisma.sale.deleteMany({ where: { id: saleId } });
   await ctx.redis.del(stockKey(saleId), reservedUsersKey(saleId));
