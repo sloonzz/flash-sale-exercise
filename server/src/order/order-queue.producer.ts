@@ -33,33 +33,10 @@ export class OrderQueueProducer {
     );
   }
 
-  countDeadLettered(): Promise<number> {
-    return this.queue.getFailedCount();
-  }
-
-  async retryDeadLettered(saleId?: string): Promise<string[]> {
+  async listDeadLettered(saleId: string): Promise<string[]> {
     const failed = await this.queue.getFailed();
-    const jobs = saleId
-      ? failed.filter((job) => job.data.saleId === saleId)
-      : failed;
-    const retried = await Promise.all(
-      jobs.map(async (job) => {
-        try {
-          await job.retry('failed', { resetAttemptsMade: true });
-          return job.data.userId;
-        } catch (error) {
-          if (isNotInFailedStateError(error)) return null;
-          throw error;
-        }
-      }),
-    );
-    return retried.filter((userId): userId is string => userId !== null);
+    return failed
+      .filter((job) => job.data.saleId === saleId)
+      .map((job) => job.data.userId);
   }
-}
-
-function isNotInFailedStateError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes('is not in the failed state')
-  );
 }

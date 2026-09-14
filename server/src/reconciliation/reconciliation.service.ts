@@ -82,16 +82,16 @@ export class ReconciliationService implements OnApplicationBootstrap {
       return;
     }
 
-    const retried = new Set(
-      await this.orderQueueProducer.retryDeadLettered(saleId),
+    const deadLettered = new Set(
+      await this.orderQueueProducer.listDeadLettered(saleId),
     );
-    if (retried.size > 0) {
-      this.logger.warn(
-        `Retried ${retried.size} dead-lettered persist-order job(s) for sale ${saleId}`,
+    if (deadLettered.size > 0) {
+      this.logger.error(
+        `${deadLettered.size} dead-lettered persist-order job(s) for sale ${saleId} left in 'failed' — needs manual intervention`,
       );
     }
 
-    const toEnqueue = orphaned.filter((userId) => !retried.has(userId));
+    const toEnqueue = orphaned.filter((userId) => !deadLettered.has(userId));
     if (toEnqueue.length === 0) {
       return;
     }

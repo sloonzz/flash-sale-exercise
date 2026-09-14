@@ -45,7 +45,7 @@ describe('persist-order dead-letter path (fault tolerance)', () => {
 
   dumpAppLogsOnFailure(() => ctx);
 
-  it('dead-letters a job that exhausts its attempts, alerts, and replays it via reconciliation once Postgres is back', async () => {
+  it('dead-letters a job that exhausts its attempts, alerts, and leaves it for manual intervention rather than replaying it', async () => {
     const saleId = await createSale(ctx.app, { totalStock: 5 });
     const jobId = `${saleId}|user-1`;
     const reservationService = ctx.app.get(ReservationService);
@@ -94,13 +94,27 @@ describe('persist-order dead-letter path (fault tolerance)', () => {
         }),
       ).resolves.toBeNull();
 
-      // Reconciliation retries the dead-lettered job and the Order lands
+      // Reconciliation notices the dead-lettered job but leaves it alone:
+      // the DLQ is the final resort and a human decides what to do with it
       await reconciliationService.reconcile(saleId);
       expect(
         ctx.logger.hasLogged(
-          `Retried 1 dead-lettered persist-order job(s) for sale ${saleId}`,
+          `1 dead-lettered persist-order job(s) for sale ${saleId} left in 'failed'`,
         ),
       ).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await expect(
+        queue.getJob(jobId).then((job) => job?.getState()),
+      ).resolves.toBe('failed');
+      await expect(
+        ctx.prisma.order.findUnique({
+          where: { saleId_userId: { saleId, userId: 'user-1' } },
+        }),
+      ).resolves.toBeNull();
+
+      // A human replays it once the cause is fixed and the Order lands
+      const job = await queue.getJob(jobId);
+      await job!.retry('failed', { resetAttemptsMade: true });
       await waitForOrder(ctx.prisma, saleId, 'user-1', 30_000);
 
       // The job is gone from `failed` (removeOnComplete) and stock was never touched

@@ -19,7 +19,7 @@ describe('ReconciliationService (integration)', () => {
   const prisma = new PrismaService();
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
-    retryDeadLettered: vi.fn().mockResolvedValue([]),
+    listDeadLettered: vi.fn().mockResolvedValue([]),
   } as unknown as OrderQueueProducer;
   const redis = new Redis(REDIS_URL);
   const reservationService = new ReservationService(redis, orderQueueProducer);

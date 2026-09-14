@@ -60,8 +60,8 @@ There are five kinds of server tests, from fastest/narrowest to slowest/broadest
 - **Unit** (`*.spec.ts`) — no external infra required.
 - **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres/BullMQ directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
 - **E2E** (`*.e2e-spec.ts`) — spin up the Nest app in-process and exercise it over HTTP with supertest.
-- **Performance** (`*.performance-spec.ts`) — load-test the real app under `autocannon`/concurrent load, either against real Redis directly (`redis-reserve.performance-spec.ts`) or against a clustered server process (`purchase.performance-spec.ts`, `sale-status.performance-spec.ts`). Each HTTP suite runs under two load profiles: a short **spike** of many connections and a longer **stress** run with fewer connections.
-- **Fault tolerance** (`*.fault-spec.ts`) — boot the real app and then break its infra out from under it via the Docker CLI: stopping Postgres mid-purchase (write retry), wiping Redis (stock reconciliation from Postgres), network-partitioning Redis (command timeouts), restarting the app with a BullMQ backlog still failing against a dead Postgres (exactly-once drain), a persist-order enqueue that fails after the Reservation landed (re-enqueued by startup reconciliation), a persist-order job that exhausts its attempts against a dead Postgres (dead-lettered with an alert, then replayed by reconciliation), and the same with two app replicas running (the sweep holds off while Postgres is down, then exactly one replica replays it). Each suite checks the app recovers with no lost or duplicated orders. Requires `docker` on your PATH; the suites run one file at a time since they take down the shared containers.
+- **Performance** (`*.performance-spec.ts`) — load-test the real app with `autocannon` against a clustered server and real Redis/Postgres, under both a short spike of many connections and a longer stress run with fewer.
+- **Fault tolerance** (`*.fault-spec.ts`) — boot the real app, break its infra (Postgres, Redis, the app itself) out from under it via the Docker CLI, and check it recovers with no lost or duplicated orders. Requires `docker` on your PATH; the suites run one file at a time since they take down the shared containers.
 
 E2E, performance and fault-tolerance tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
 
@@ -91,6 +91,8 @@ Vocabulary (Sale, Stock, Reservation, Order, Reconciliation) is in [CONTEXT.md](
 
 **Redis decides, Postgres remembers.** The Reservation (stock decrement + one-per-user check) is one atomic Lua script in Redis, answered synchronously. The durable Order row is written to Postgres afterwards by a BullMQ consumer and retried until it lands.
 
+**Flowchart**
+
 ```mermaid
 flowchart LR
     FE["Browser<br/>React frontend"]
@@ -100,7 +102,6 @@ flowchart LR
         HTTP["HTTP layer<br/>rate limiter · sale window check"]
         RES["Reservation<br/>atomic Lua script"]
         CONS["Order writer<br/>BullMQ consumer"]
-        SWEEP["Dead-letter sweeper<br/>timer, one replica per interval"]
         HTTP --> RES
     end
 
@@ -117,10 +118,10 @@ flowchart LR
     QUEUE -->|"process, capped exp. backoff"| CONS
     CONS -->|"upsert order"| PG
     CONS -.->|"attempts exhausted → failed set"| QUEUE
-    SWEEP -.->|"lease (SET NX) · retry failed"| QUEUE
-    SWEEP -.->|"SELECT 1 probe"| PG
     HTTP -.->|"read sale, cached in Redis"| PG
 ```
+
+**Sequence diagram**
 
 ```mermaid
 sequenceDiagram
@@ -148,21 +149,21 @@ Steps 1–5 are the hot path and touch only Redis. Steps 6–8 are async and ide
 
 - **Redis decides who gets an item, Postgres keeps the record.** Doing this in Postgres alone would make every buyer wait in line on a single row, which caps how fast the sale can go. Redis answers in memory in one step, and Postgres only has to write one row per buyer afterwards, with no contention.
 
-_Trade-off:_ for a few seconds Redis is the only place a purchase exists. If Redis restarts it loses at most one second of data because of every-second persisting, and on startup the app rebuilds Redis from Postgres if anything is missing.
+  - _Trade-off:_ for a few seconds Redis is the only place a purchase exists. If Redis restarts it loses at most one second of data because of every-second persisting, and on startup the app rebuilds Redis from Postgres if anything is missing.
 
-_Trade-off:_ consistency over availability. If Redis is unreachable the sale stops (`/purchase` and `/sale/status` return 5xx) rather than guessing, so nobody is oversold or double-charged, whereas Postgres can be down for minutes and the sale keeps running.
+  - _Trade-off:_ consistency over availability. If Redis is unreachable the sale stops (`/purchase` and `/sale/status` return 5xx) rather than guessing, so nobody is oversold or double-charged, whereas Postgres can be down for minutes and the sale keeps running.
 
 - **A job queue writes the order to Postgres.** The queue lives in Redis, so there is nothing extra to run, and it retries with capped exponential backoff (1s doubling to 30s, ±20% jitter) until Postgres accepts the write. Each job is keyed by sale + user, so sending the same one twice does nothing.
 
-_Trade-off:_ once the buyer is told "success", that decision is final. If the Postgres write fails, the job keeps retrying rather than reversing the purchase, so an order row can lag behind the confirmation by seconds or minutes while Postgres is unavailable.
+  - _Trade-off:_ once the buyer is told "success", that decision is final. If the Postgres write fails, the job keeps retrying rather than reversing the purchase, so an order row can lag behind the confirmation by seconds or minutes while Postgres is unavailable.
 
-- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 23 min).** A job that still can't land stays in BullMQ's `failed` set and the consumer logs a `DEAD-LETTERED` error naming the sale and user. Nothing is lost: the Reservation is still held in Redis, and a periodic sweep (`DeadLetterSweeper`, default every 60s) replays the job once Postgres answers a `SELECT 1` probe. A Redis lease (`SET NX PX`) ensures only one replica sweeps at a time. Reconciliation replays them too: on startup it walks every sale that ended within `RECONCILE_SALES_WINDOW_MS` (default 7 days), not just the current one, so an older sale's stranded jobs are picked up even after a new sale has been created.
+- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 23 min).** A job that still can't land stays in BullMQ's `failed` set and the consumer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention.
 
-_Trade-off:_ giving up bounds how long a dead Postgres is hammered, and the alert keeps firing every cycle until someone fixes it. The cost is one small lease key in Redis; servers stay stateless.
+  - _Trade-off:_ giving up bounds how long a dead Postgres is hammered, at the cost of an order that stays missing until someone intervenes.
 
 - **The page polls instead of using WebSockets.** A status check is two cheap Redis reads and no server has to remember who is connected, so any server can answer any request.
 
-_Trade-off:_ the countdown and stock number can be up to 4 seconds stale, which never changes who gets an item.
+  - _Trade-off:_ sale state in the frontend can be up to 4 seconds stale. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
 
 - **Servers hold no state.** Rate limits, stock, who has bought, and the queue all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
 

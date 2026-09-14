@@ -18,17 +18,11 @@ export const REDIS_COMMAND_TIMEOUT_MS = Number(
 );
 
 // How many times a persist-order job is attempted before it is dead-lettered
-// (left in BullMQ's `failed` set and alerted on). With the capped exponential
-// backoff in persist-order-job.ts, 50 attempts ≈ 23 minutes of retrying.
+// (left in BullMQ's `failed` set and alerted on, never retried automatically).
+// With the capped exponential backoff in persist-order-job.ts, 50 attempts
+// ≈ 23 minutes of retrying.
 export const PERSIST_ORDER_ATTEMPTS = Number(
   process.env.PERSIST_ORDER_ATTEMPTS ?? 50,
-);
-
-// How often each replica checks BullMQ's `failed` set for dead-lettered
-// persist-order jobs and, if Postgres is reachable, retries them. A Redis
-// lease keeps it to one sweep per interval across the whole fleet. 0 disables.
-export const PERSIST_ORDER_DLQ_SWEEP_MS = Number(
-  process.env.PERSIST_ORDER_DLQ_SWEEP_MS ?? 60_000,
 );
 
 // How far back startup reconciliation looks: every sale whose end time is

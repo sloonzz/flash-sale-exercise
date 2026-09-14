@@ -19,7 +19,9 @@ export interface PersistOrderJobData {
  *
  * Dead-letter: a job that exhausts its attempts stays in the queue's `failed`
  * set (removeOnFail is off). The consumer logs it as dead-lettered so it can
- * be alerted on, and ReconciliationService retries it once the cause is fixed.
+ * be alerted on. It is the last resort and is never retried by the system:
+ * a human investigates and replays it (e.g. `job.retry()`) once the cause is
+ * fixed. ReconciliationService skips it rather than re-enqueueing it.
  */
 export const PERSIST_ORDER_BACKOFF_TYPE = 'capped-exponential';
 export const PERSIST_ORDER_BACKOFF_BASE_MS = 1_000;

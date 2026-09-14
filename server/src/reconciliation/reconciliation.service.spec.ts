@@ -18,7 +18,7 @@ describe('ReconciliationService', () => {
   } as unknown as ReservationService;
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
-    retryDeadLettered: vi.fn().mockResolvedValue([]),
+    listDeadLettered: vi.fn().mockResolvedValue([]),
   } as unknown as OrderQueueProducer;
   const reconciliationService = new ReconciliationService(
     prisma,
@@ -30,7 +30,7 @@ describe('ReconciliationService', () => {
     vi.clearAllMocks();
     vi.mocked(prisma.order.findMany).mockResolvedValue([]);
     vi.mocked(reservationService.getReservedUsers).mockResolvedValue([]);
-    vi.mocked(orderQueueProducer.retryDeadLettered).mockResolvedValue([]);
+    vi.mocked(orderQueueProducer.listDeadLettered).mockResolvedValue([]);
   });
 
   describe('onApplicationBootstrap', () => {
@@ -275,10 +275,10 @@ describe('ReconciliationService', () => {
       await reconciliationService.reconcile(saleId);
 
       expect(orderQueueProducer.enqueuePersistOrder).not.toHaveBeenCalled();
-      expect(orderQueueProducer.retryDeadLettered).not.toHaveBeenCalled();
+      expect(orderQueueProducer.listDeadLettered).not.toHaveBeenCalled();
     });
 
-    it('retries dead-lettered jobs instead of re-enqueueing them (add is a no-op on an existing job id)', async () => {
+    it('leaves dead-lettered jobs alone for manual intervention instead of re-enqueueing them', async () => {
       const saleId = randomUUID();
       vi.mocked(prisma.sale.findUniqueOrThrow).mockResolvedValue({
         totalStock: 10,
@@ -288,13 +288,13 @@ describe('ReconciliationService', () => {
         'user-1',
         'user-2',
       ]);
-      vi.mocked(orderQueueProducer.retryDeadLettered).mockResolvedValue([
+      vi.mocked(orderQueueProducer.listDeadLettered).mockResolvedValue([
         'user-1',
       ]);
 
       await reconciliationService.reconcile(saleId);
 
-      expect(orderQueueProducer.retryDeadLettered).toHaveBeenCalledWith(saleId);
+      expect(orderQueueProducer.listDeadLettered).toHaveBeenCalledWith(saleId);
       expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
       expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
         saleId,

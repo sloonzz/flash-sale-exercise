@@ -43,7 +43,7 @@ export class OrderQueueConsumer extends WorkerHost {
     this.logger.error(
       `persist-order job ${job.id} DEAD-LETTERED after ${job.attemptsMade} attempts: ` +
         `user ${job.data.userId} holds a Reservation on sale ${job.data.saleId} with no Order. ` +
-        `Job left in 'failed' — reconcile the sale to replay it once the cause is fixed.`,
+        `Job left in 'failed' and will not be retried automatically — needs manual intervention.`,
       error,
     );
   }
