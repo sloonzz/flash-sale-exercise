@@ -10,6 +10,7 @@ import {
   type CachedSale,
 } from './sale-cache.ts';
 import { SaleService } from './sale.service.ts';
+import type { OrderModel } from '../generated/prisma/models.ts';
 
 describe('SaleService', () => {
   const prisma = {
@@ -18,6 +19,9 @@ describe('SaleService', () => {
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+    },
+    order: {
+      findUnique: vi.fn(),
     },
   } as unknown as PrismaService;
   const reservationService = {
@@ -199,25 +203,42 @@ describe('SaleService', () => {
     });
   });
 
-  describe('hasSecured', () => {
-    it('reads the reserved-users state from the Reservation module for the given sale', async () => {
+  describe('getSecuredStatus', () => {
+    it('is confirmed when a durable Order row exists, without consulting Redis', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue({
+        id: 'order-1',
+      } as OrderModel);
+
+      await expect(
+        saleService.getSecuredStatus('user-1', 'sale-1'),
+      ).resolves.toBe('confirmed');
+      expect(prisma.order.findUnique).toHaveBeenCalledWith({
+        where: { saleId_userId: { saleId: 'sale-1', userId: 'user-1' } },
+        select: { id: true },
+      });
+      expect(reservationService.isReserved).not.toHaveBeenCalled();
+    });
+
+    it('is reserved when the Reservation exists but its Order has not landed', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue(null);
       vi.mocked(reservationService.isReserved).mockResolvedValue(true);
 
-      await expect(saleService.hasSecured('user-1', 'sale-1')).resolves.toBe(
-        true,
-      );
+      await expect(
+        saleService.getSecuredStatus('user-1', 'sale-1'),
+      ).resolves.toBe('reserved');
       expect(reservationService.isReserved).toHaveBeenCalledWith(
         'sale-1',
         'user-1',
       );
     });
 
-    it('is false when the Reservation module has no record for the sale', async () => {
+    it('is none when there is neither an Order nor a Reservation', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue(null);
       vi.mocked(reservationService.isReserved).mockResolvedValue(false);
 
-      await expect(saleService.hasSecured('user-1', 'sale-1')).resolves.toBe(
-        false,
-      );
+      await expect(
+        saleService.getSecuredStatus('user-1', 'sale-1'),
+      ).resolves.toBe('none');
     });
   });
 

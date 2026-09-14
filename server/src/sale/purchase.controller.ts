@@ -38,7 +38,7 @@ export class PurchaseController {
     @Headers('x-user-id') rawUserId: string,
   ): Promise<SecuredResponse> {
     const userId = new ZodValidationPipe(userIdSchema).transform(rawUserId);
-    const secured = await this.saleService.hasSecured(userId, saleId);
-    return { secured };
+    const status = await this.saleService.getSecuredStatus(userId, saleId);
+    return { status };
   }
 }

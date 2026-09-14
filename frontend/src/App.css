@@ -187,6 +187,81 @@
   color: #b91c1c;
 }
 
+.order-progress {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.progress-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text);
+
+  &.is-done {
+    color: #15803d;
+  }
+
+  &.is-active {
+    color: var(--text-h);
+  }
+}
+
+.progress-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.is-done .progress-mark {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.progress-spinner {
+  box-sizing: border-box;
+  border: 2px solid var(--accent-border);
+  border-top-color: var(--accent);
+  animation: progress-spin 0.8s linear infinite;
+}
+
+@keyframes progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   .status-active {
     color: #4ade80;
@@ -196,6 +271,9 @@
     color: #f87171;
   }
   .banner-success {
+    color: #4ade80;
+  }
+  .progress-step.is-done {
     color: #4ade80;
   }
   .banner-warning {

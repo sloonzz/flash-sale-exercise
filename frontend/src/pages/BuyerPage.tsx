@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { PurchaseResult } from 'common';
+import type { PurchaseResult, SecuredResponse, SecuredStatus } from 'common';
 import { ApiError } from '../api/client.ts';
 import { getMutationFeedback, type Feedback } from '../api/feedback.ts';
 import { useSaleStatusQuery } from '../api/queries/useSaleStatusQuery.ts';
@@ -17,16 +17,13 @@ import {
 
 const USER_ID_STORAGE_KEY = 'flashSale.userId';
 const SECURED_CHECK_DEBOUNCE_MS = 400;
+const SLOW_CONFIRMATION_MS = 15_000;
 
-function feedbackForResult(result: PurchaseResult): Feedback {
+function feedbackForResult(result: PurchaseResult): Feedback | null {
   switch (result) {
     case 'success':
-      return { kind: 'success', message: 'Purchase confirmed — you got one!' };
     case 'already_purchased':
-      return {
-        kind: 'warning',
-        message: "You've already secured an item in this sale.",
-      };
+      return null;
     case 'sold_out':
       return { kind: 'warning', message: 'Sold out — no stock left.' };
     case 'ended':
@@ -111,7 +108,23 @@ export function BuyerPage() {
   const isDebouncing = trimmedUserId !== debouncedUserId;
 
   const securedQuery = useSecuredQuery(saleId, debouncedUserId);
-  const secured = isDebouncing ? null : (securedQuery.data?.secured ?? null);
+  const securedStatus: SecuredStatus | null = isDebouncing
+    ? null
+    : (securedQuery.data?.status ?? null);
+
+  const [confirmationIsSlow, setConfirmationIsSlow] = useState(false);
+  useEffect(() => {
+    if (securedStatus !== 'reserved') return;
+
+    const timer = setTimeout(
+      () => setConfirmationIsSlow(true),
+      SLOW_CONFIRMATION_MS,
+    );
+    return () => {
+      clearTimeout(timer);
+      setConfirmationIsSlow(false);
+    };
+  }, [securedStatus, saleId, debouncedUserId]);
 
   const purchaseMutation = usePurchaseMutation();
 
@@ -135,9 +148,15 @@ export function BuyerPage() {
       {
         onSuccess: ({ result }) => {
           if (result === 'success' || result === 'already_purchased') {
-            queryClient.setQueryData(securedQueryKey(saleId, trimmedUserId), {
-              secured: true,
-            });
+            // Optimistically mark the hold; the query's own polling takes it
+            // from here to `confirmed` once the Order row exists.
+            queryClient.setQueryData<SecuredResponse>(
+              securedQueryKey(saleId, trimmedUserId),
+              (previous) =>
+                previous?.status === 'confirmed'
+                  ? previous
+                  : { status: 'reserved' },
+            );
           }
           saleStatusQuery.refetch();
         },
@@ -146,13 +165,21 @@ export function BuyerPage() {
   }
 
   const purchasing = purchaseMutation.isPending;
+  const holdsItem =
+    securedStatus === 'reserved' || securedStatus === 'confirmed';
   const canBuy =
     !loading &&
     !purchasing &&
     !!saleId &&
     effectiveStatus === 'active' &&
-    secured !== true &&
+    !holdsItem &&
     trimmedUserId.length > 0;
+
+  function buyButtonLabel(): string {
+    if (purchasing) return 'Reserving…';
+    if (securedStatus === 'reserved') return 'Reserved';
+    return 'Buy Now';
+  }
 
   return (
     <section className="panel">
@@ -204,9 +231,36 @@ export function BuyerPage() {
           autoComplete="username"
         />
 
-        {secured === true && !feedback && (
-          <p className="banner banner-warning">
-            You've already secured an item in this sale.
+        {securedStatus === 'reserved' && (
+          <div className="order-progress" role="status" aria-live="polite">
+            <ol className="progress-steps">
+              <li className="progress-step is-done">
+                <span className="progress-mark" aria-hidden="true">
+                  ✓
+                </span>
+                Item reserved
+              </li>
+              <li className="progress-step is-active">
+                <span
+                  className="progress-mark progress-spinner"
+                  aria-hidden="true"
+                />
+                Confirming your order…
+              </li>
+            </ol>
+            <p className="progress-hint">
+              {confirmationIsSlow
+                ? 'This is taking longer than usual. Your reservation is kept — it’s safe to leave and check back.'
+                : 'Your item is held for you while we write the order.'}
+            </p>
+          </div>
+        )}
+
+        {securedStatus === 'confirmed' && (
+          <p className="banner banner-success">
+            {purchaseMutation.data?.result === 'success'
+              ? 'Order confirmed — you got one!'
+              : "You've secured an item in this sale."}
           </p>
         )}
 
@@ -216,7 +270,7 @@ export function BuyerPage() {
           disabled={!canBuy}
           onClick={handleBuy}
         >
-          {purchasing ? 'Buying…' : 'Buy Now'}
+          {buyButtonLabel()}
         </button>
 
         {feedback && (

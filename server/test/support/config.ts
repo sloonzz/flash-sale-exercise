@@ -13,6 +13,11 @@ export const STRESS_CONNECTIONS = Number(process.env.STRESS_CONNECTIONS ?? 100);
 export const STRESS_DURATION = Number(process.env.STRESS_DURATION ?? 60);
 
 export const AUTOCANNON_WORKERS = Number(process.env.AUTOCANNON_WORKERS ?? 5);
+
+export const SETTLE_GRACE_MS = Number(process.env.SETTLE_GRACE_MS ?? 30_000);
+export const SETTLE_ORDERS_PER_SECOND = Number(
+  process.env.SETTLE_ORDERS_PER_SECOND ?? 1_000,
+);
 export const CLUSTER_WORKERS = resolveClusterWorkers(
   Number(process.env.CLUSTER_WORKERS ?? 4),
 );

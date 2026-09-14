@@ -6,6 +6,7 @@ import { OrderOutboxDrainer } from './order-outbox.drainer.ts';
 import { ORDER_OUTBOX_GROUP } from './order-outbox.ts';
 import { createTestQueue } from './order-queue.test-support.ts';
 import { OrderQueueProducer } from './order-queue.producer.ts';
+import { PRUNE_OUTBOX_CONSUMERS_SCRIPT } from './prune-outbox-consumers-script.ts';
 
 describe('OrderOutboxDrainer (integration)', () => {
   const redis = new Redis(REDIS_URL);
@@ -52,6 +53,26 @@ describe('OrderOutboxDrainer (integration)', () => {
       'timestamp',
       new Date().toISOString(),
     )) as string;
+  }
+
+  async function consumerNames(): Promise<string[]> {
+    const consumers = (await redis.xinfo(
+      'CONSUMERS',
+      outboxKey,
+      ORDER_OUTBOX_GROUP,
+    )) as (string | number)[][];
+    return consumers.map((fields) => String(fields[1])).sort();
+  }
+
+  async function readAs(consumer: string): Promise<void> {
+    await redis.xreadgroup(
+      'GROUP',
+      ORDER_OUTBOX_GROUP,
+      consumer,
+      'STREAMS',
+      outboxKey,
+      '>',
+    );
   }
 
   async function pendingCount(): Promise<number> {
@@ -182,6 +203,59 @@ describe('OrderOutboxDrainer (integration)', () => {
     } finally {
       await other.onModuleDestroy();
     }
+  });
+
+  it('removes its own consumer from the group on shutdown', async () => {
+    const stopping = new OrderOutboxDrainer(redis, outboxKey, producer);
+    await stopping.drainOnce();
+    await expect(consumerNames()).resolves.toHaveLength(1);
+
+    await stopping.onModuleDestroy();
+
+    await expect(consumerNames()).resolves.toHaveLength(0);
+  });
+
+  it('keeps its consumer on shutdown while an entry it read is still pending', async () => {
+    const stopping = new OrderOutboxDrainer(redis, outboxKey, producer);
+    const saleId = randomUUID();
+    await createGroup();
+    await append(saleId, 'user-1');
+    // Read as the drainer's own consumer but never ack (an enqueue that failed)
+    await readAs(stopping['consumerName']);
+
+    await stopping.onModuleDestroy();
+
+    await expect(consumerNames()).resolves.toEqual([stopping['consumerName']]);
+    await expect(pendingCount()).resolves.toBe(1);
+  });
+
+  it('prunes idle consumers that hold nothing pending, and only those', async () => {
+    const saleId = randomUUID();
+    await createGroup();
+    await append(saleId, 'user-1');
+    await readAs('dead-with-pending');
+    await readAs('dead-idle');
+    await readAs('me');
+    await expect(consumerNames()).resolves.toEqual([
+      'dead-idle',
+      'dead-with-pending',
+      'me',
+    ]);
+
+    // Min idle 0 so the test need not wait out ORDER_OUTBOX_CLAIM_IDLE_MS
+    await expect(
+      redis.eval(
+        PRUNE_OUTBOX_CONSUMERS_SCRIPT,
+        1,
+        outboxKey,
+        ORDER_OUTBOX_GROUP,
+        0,
+        'me',
+      ),
+    ).resolves.toBe(1);
+
+    await expect(consumerNames()).resolves.toEqual(['dead-with-pending', 'me']);
+    await expect(pendingCount()).resolves.toBe(1);
   });
 
   it('survives Redis being wiped underneath it (NOGROUP) by recreating the group on the next pass', async () => {

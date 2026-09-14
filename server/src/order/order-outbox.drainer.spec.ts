@@ -10,6 +10,7 @@ import {
 } from './order-outbox.drainer.ts';
 import { ORDER_OUTBOX_GROUP } from './order-outbox.ts';
 import { OrderQueueProducer } from './order-queue.producer.ts';
+import { PRUNE_OUTBOX_CONSUMERS_SCRIPT } from './prune-outbox-consumers-script.ts';
 
 describe('OrderOutboxDrainer', () => {
   const outboxKey = 'order-outbox-test';
@@ -24,6 +25,8 @@ describe('OrderOutboxDrainer', () => {
     xgroup: vi.fn().mockResolvedValue('OK'),
     xautoclaim: vi.fn().mockResolvedValue(['0-0', [], []]),
     xreadgroup: vi.fn().mockResolvedValue(null),
+    xpending: vi.fn().mockResolvedValue([]),
+    eval: vi.fn().mockResolvedValue(0),
     multi: vi.fn(() => multi),
   };
   const sharedRedis = { duplicate: vi.fn(() => client) } as unknown as Redis;
@@ -61,8 +64,11 @@ describe('OrderOutboxDrainer', () => {
     vi.clearAllMocks();
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
     client.xgroup.mockResolvedValue('OK');
     client.xautoclaim.mockResolvedValue(['0-0', [], []]);
+    client.xpending.mockResolvedValue([]);
+    client.eval.mockResolvedValue(0);
     stream([], []);
     vi.mocked(orderQueueProducer.enqueuePersistOrder).mockResolvedValue(
       undefined,
@@ -260,11 +266,74 @@ describe('OrderOutboxDrainer', () => {
     );
   });
 
-  it('closes its connection on shutdown', async () => {
+  it('prunes dead consumers once, when it joins the group', async () => {
+    client.eval.mockResolvedValue(2);
+    const drainer = newDrainer();
+
+    await drainer.drainOnce();
+    await drainer.drainOnce();
+
+    expect(client.eval).toHaveBeenCalledTimes(1);
+    expect(client.eval).toHaveBeenCalledWith(
+      PRUNE_OUTBOX_CONSUMERS_SCRIPT,
+      1,
+      outboxKey,
+      ORDER_OUTBOX_GROUP,
+      ORDER_OUTBOX_CLAIM_IDLE_MS,
+      expect.any(String),
+    );
+    expect(Logger.prototype.log).toHaveBeenCalledWith(
+      expect.stringContaining('Removed 2 dead order-outbox consumers'),
+    );
+  });
+
+  it('removes its own consumer and closes its connection on shutdown', async () => {
     const drainer = newDrainer();
 
     await drainer.onModuleDestroy();
 
+    expect(client.xpending).toHaveBeenCalledWith(
+      outboxKey,
+      ORDER_OUTBOX_GROUP,
+      '-',
+      '+',
+      1,
+      expect.any(String),
+    );
+    expect(client.xgroup).toHaveBeenCalledWith(
+      'DELCONSUMER',
+      outboxKey,
+      ORDER_OUTBOX_GROUP,
+      expect.any(String),
+    );
+    expect(client.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its consumer on shutdown while it still holds pending entries, so a live drainer can reclaim them', async () => {
+    client.xpending.mockResolvedValue([['1-0', 'me', 5, 1]]);
+    const drainer = newDrainer();
+
+    await drainer.onModuleDestroy();
+
+    expect(client.xgroup).not.toHaveBeenCalledWith(
+      'DELCONSUMER',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(client.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('still closes its connection when removing its consumer fails on shutdown', async () => {
+    client.xpending.mockRejectedValue(new Error('connection refused'));
+    const drainer = newDrainer();
+
+    await drainer.onModuleDestroy();
+
+    expect(Logger.prototype.warn).toHaveBeenCalledWith(
+      'Failed to remove own order-outbox consumer',
+      expect.any(Error),
+    );
     expect(client.quit).toHaveBeenCalledTimes(1);
   });
 });

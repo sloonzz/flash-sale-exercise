@@ -20,6 +20,7 @@ import {
   parseOrderOutboxEntry,
 } from './order-outbox.ts';
 import { OrderQueueProducer } from './order-queue.producer.ts';
+import { PRUNE_OUTBOX_CONSUMERS_SCRIPT } from './prune-outbox-consumers-script.ts';
 
 export const ORDER_OUTBOX_BATCH_SIZE = 100;
 // XREADGROUP blocks the connection for up to this long waiting for a new
@@ -82,6 +83,7 @@ export class OrderOutboxDrainer
   async onModuleDestroy(): Promise<void> {
     this.running = false;
     await this.loop;
+    await this.removeOwnConsumer();
     await this.client.quit();
   }
 
@@ -145,6 +147,52 @@ export class OrderOutboxDrainer
       if (!isBusyGroupError(error)) throw error;
     }
     this.groupReady = true;
+    await this.pruneDeadConsumers();
+  }
+
+  private async pruneDeadConsumers(): Promise<void> {
+    const removed = (await this.client.eval(
+      PRUNE_OUTBOX_CONSUMERS_SCRIPT,
+      1,
+      this.outboxKey,
+      ORDER_OUTBOX_GROUP,
+      ORDER_OUTBOX_CLAIM_IDLE_MS,
+      this.consumerName,
+    )) as number;
+    if (removed > 0) {
+      this.logger.log(
+        `Removed ${removed} dead order-outbox consumer${removed === 1 ? '' : 's'}`,
+      );
+    }
+  }
+
+  /**
+   * Graceful shutdown: the loop has stopped, so nothing can be delivered to
+   * this consumer any more. Delete it unless it still holds entries whose
+   * enqueue failed — DELCONSUMER would discard those; leaving the consumer
+   * lets a live drainer reclaim them after ORDER_OUTBOX_CLAIM_IDLE_MS.
+   */
+  private async removeOwnConsumer(): Promise<void> {
+    try {
+      const pending = await this.client.xpending(
+        this.outboxKey,
+        ORDER_OUTBOX_GROUP,
+        '-',
+        '+',
+        1,
+        this.consumerName,
+      );
+      if (pending.length > 0) return;
+      await this.client.xgroup(
+        'DELCONSUMER',
+        this.outboxKey,
+        ORDER_OUTBOX_GROUP,
+        this.consumerName,
+      );
+    } catch (error) {
+      // Best effort: a leftover consumer is pruned by a live drainer later.
+      this.logger.warn('Failed to remove own order-outbox consumer', error);
+    }
   }
 
   private async claimStale(): Promise<OrderOutboxEntry[]> {

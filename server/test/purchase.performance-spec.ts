@@ -2,7 +2,10 @@ import autocannon from 'autocannon';
 import { describe, expect, it } from 'vitest';
 import { stockKey } from '../src/reservation/reservation-keys.ts';
 import { CLUSTER_WORKERS, LOAD_PROFILES } from './support/config.ts';
-import { usePerformanceHarness } from './support/performance-harness.ts';
+import {
+  settlePoll,
+  usePerformanceHarness,
+} from './support/performance-harness.ts';
 
 const UNDERSTOCKED_STOCK = Number(process.env.UNDERSTOCKED_STOCK ?? 50);
 
@@ -49,20 +52,23 @@ describe(`POST /purchase (CLUSTER_WORKERS=${CLUSTER_WORKERS})`, () => {
           saleId,
         );
 
-        // Wait for the async BullMQ consumer to catch up with the reservation
-        let stockConsumed = -1;
+        // Every request succeeded, so the whole run is a persist backlog.
+        // Wait for the async pipeline to catch up with the reservation,
+        // re-reading stock each time: a request in flight when autocannon
+        // stopped can still land after the run result is in.
+        const consumedStock = async () =>
+          OVERSTOCKED_STOCK - Number(await harness.redis.get(stockKey(saleId)));
+        let stockConsumed = await consumedStock();
+        expect(stockConsumed).toBeGreaterThanOrEqual(runResult['2xx']);
         await expect
-          .poll(
-            async () => {
-              const [stock, orderCount] = await Promise.all([
-                harness.redis.get(stockKey(saleId)),
-                harness.prisma.order.count({ where: { saleId } }),
-              ]);
-              stockConsumed = OVERSTOCKED_STOCK - Number(stock);
-              return orderCount === stockConsumed;
-            },
-            { timeout: 60_000, interval: 100 },
-          )
+          .poll(async () => {
+            const [consumed, orderCount] = await Promise.all([
+              consumedStock(),
+              harness.prisma.order.count({ where: { saleId } }),
+            ]);
+            stockConsumed = consumed;
+            return orderCount === stockConsumed;
+          }, settlePoll(stockConsumed))
           .toBe(true);
 
         await expect(harness.countDistinctBuyers(saleId)).resolves.toBe(

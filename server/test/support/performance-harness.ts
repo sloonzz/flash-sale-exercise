@@ -21,6 +21,8 @@ import {
 import {
   AUTOCANNON_WORKERS,
   CLUSTER_WORKERS,
+  SETTLE_GRACE_MS,
+  SETTLE_ORDERS_PER_SECOND,
   type LoadProfile,
 } from './config.ts';
 
@@ -30,7 +32,17 @@ const SETUP_REQUEST_SCRIPT = fileURLToPath(
 
 export const ADMIN_KEY = 'test-admin-key';
 
-const SETTLE_POLL = { timeout: 60_000, interval: 100 } as const;
+/** Poll options for waiting on `backlog` orders to drain through the persist pipeline. */
+export function settlePoll(backlog: number): {
+  timeout: number;
+  interval: number;
+} {
+  return {
+    timeout:
+      SETTLE_GRACE_MS + Math.ceil((backlog / SETTLE_ORDERS_PER_SECOND) * 1000),
+    interval: 100,
+  };
+}
 
 export type PurchaseUserIds = 'unique' | 'duplicate';
 
@@ -67,17 +79,17 @@ export function usePerformanceHarness(): PerformanceHarness {
     });
   }, 60_000);
 
+  async function persistBacklog(): Promise<number> {
+    const [outbox, counts] = await Promise.all([
+      redis.xlen(ORDER_OUTBOX_DEFAULT_KEY),
+      persistOrderQueue.getJobCounts('waiting', 'active', 'delayed'),
+    ]);
+    return outbox + counts.waiting + counts.active + counts.delayed;
+  }
+
   afterEach(async () => {
-    // Settle: everything the reserve script wrote to the outbox has been
-    // moved into BullMQ, and BullMQ has persisted all of it
     await expect
-      .poll(async () => {
-        const [outbox, counts] = await Promise.all([
-          redis.xlen(ORDER_OUTBOX_DEFAULT_KEY),
-          persistOrderQueue.getJobCounts('waiting', 'active', 'delayed'),
-        ]);
-        return outbox + counts.waiting + counts.active + counts.delayed;
-      }, SETTLE_POLL)
+      .poll(persistBacklog, settlePoll(await persistBacklog()))
       .toBe(0);
 
     const keys = saleIds.flatMap((saleId) => [
@@ -171,7 +183,10 @@ export function usePerformanceHarness(): PerformanceHarness {
 
     async expectPersistedOrders(saleId, count) {
       await expect
-        .poll(() => prisma.order.count({ where: { saleId } }), SETTLE_POLL)
+        .poll(
+          () => prisma.order.count({ where: { saleId } }),
+          settlePoll(count),
+        )
         .toBe(count);
     },
 

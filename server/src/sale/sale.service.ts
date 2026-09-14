@@ -3,6 +3,7 @@ import type {
   CreateSaleBody,
   PurchaseResult,
   SaleStatus,
+  SecuredStatus,
   SaleStatusResponse,
 } from 'common';
 import { Redis } from 'ioredis';
@@ -82,8 +83,20 @@ export class SaleService {
     }
   }
 
-  async hasSecured(userId: string, saleId: string): Promise<boolean> {
-    return this.reservationService.isReserved(saleId, userId);
+  async getSecuredStatus(
+    userId: string,
+    saleId: string,
+  ): Promise<SecuredStatus> {
+    const order = await this.prisma.order.findUnique({
+      where: { saleId_userId: { saleId, userId } },
+      select: { id: true },
+    });
+    if (order) {
+      return 'confirmed';
+    }
+
+    const reserved = await this.reservationService.isReserved(saleId, userId);
+    return reserved ? 'reserved' : 'none';
   }
 
   async createSale(input: CreateSaleBody): Promise<SaleModel> {

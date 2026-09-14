@@ -29,8 +29,18 @@ export interface PurchaseResponse {
   result: PurchaseResult;
 }
 
+/**
+ * Where a user's purchase attempt stands, from the durable side out:
+ * - `confirmed`: an Order row exists in Postgres. This is the only state that
+ *   means "you got one".
+ * - `reserved`: a Reservation exists in Redis but its Order has not landed yet.
+ *   The hold is kept and the Order is still being written; keep polling.
+ * - `none`: neither.
+ */
+export type SecuredStatus = 'confirmed' | 'reserved' | 'none';
+
 export interface SecuredResponse {
-  secured: boolean;
+  status: SecuredStatus;
 }
 
 export interface AdminLoginResponse {

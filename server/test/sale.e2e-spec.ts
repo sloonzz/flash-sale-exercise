@@ -275,7 +275,7 @@ describe('Sale API (e2e)', () => {
   });
 
   describe('POST /purchase + GET /purchase/:saleId', () => {
-    it('succeeds for a first-time purchase and reflects it in the check-secured read', async () => {
+    it('succeeds for a first-time purchase, reads as reserved-or-confirmed at once, and confirmed once the Order lands', async () => {
       const saleId = await createSale();
 
       const purchaseResponse = await request(app.getHttpServer())
@@ -284,13 +284,35 @@ describe('Sale API (e2e)', () => {
         .expect(201);
       expect(purchaseResponse.body.result).toBe('success');
 
-      const checkResponse = await request(app.getHttpServer())
+      // The Order is written async, so the immediate read may already be
+      // confirmed; what it must never be is `none`.
+      const immediate = await request(app.getHttpServer())
         .get(`/purchase/${saleId}`)
         .set('x-user-id', 'user-1')
         .expect(200);
-      expect(checkResponse.body.secured).toBe(true);
+      expect(['reserved', 'confirmed']).toContain(immediate.body.status);
 
       await waitForOrder(saleId, 'user-1');
+
+      const settled = await request(app.getHttpServer())
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'user-1')
+        .expect(200);
+      expect(settled.body.status).toBe('confirmed');
+    });
+
+    it('reads as reserved, not confirmed, while the Reservation has no Order yet', async () => {
+      const saleId = await createSale();
+      // A Reservation with no Order: what the check endpoint sees between the
+      // reserve script returning and the persist-order job landing.
+      await redis.sadd(reservedUsersKey(saleId), 'held-user');
+
+      const response = await request(app.getHttpServer())
+        .get(`/purchase/${saleId}`)
+        .set('x-user-id', 'held-user')
+        .expect(200);
+
+      expect(response.body.status).toBe('reserved');
     });
 
     it('rejects a repeat purchase as already_purchased', async () => {
@@ -384,7 +406,7 @@ describe('Sale API (e2e)', () => {
       expect(response.body.result).toBe('invalid_sale');
     });
 
-    it('reports secured: false for a user who has not purchased', async () => {
+    it('reports status: none for a user who has not purchased', async () => {
       const saleId = await createSale();
 
       const response = await request(app.getHttpServer())
@@ -392,7 +414,7 @@ describe('Sale API (e2e)', () => {
         .set('x-user-id', 'never-bought')
         .expect(200);
 
-      expect(response.body.secured).toBe(false);
+      expect(response.body.status).toBe('none');
     });
 
     it('grants exactly `stock` successes under concurrent purchase requests, with zero oversell surviving into the durable Order count', async () => {

@@ -19,15 +19,21 @@ Identified only by a caller-supplied identifier (email/username) — no authenti
 _Avoid_: Customer, Account.
 
 **Reservation**:
-The atomic, immediate claim of one unit of Stock by a User, decided the instant a purchase attempt is accepted. This is the moment of truth — it's what makes a purchase succeed or fail, and it's what "one item per user" is actually enforced against (a Reservation existing for a User blocks a second one, independent of the Stock count). Lives in Redis.
+The atomic, immediate claim of one unit of Stock by a User, decided the instant a purchase attempt is accepted. This is the moment of truth — it's what makes a purchase succeed or fail, and it's what "one item per user" is actually enforced against (a Reservation existing for a User blocks a second one, independent of the Stock count). Lives in Redis. To the User it is presented as a hold ("reserved"), never as a confirmation: the confirmation is the Order.
+_Avoid_: Confirmed, Purchased (for this state). To the User it is a *hold*, shown as "reserved", never as "confirmed" — see Secured status.
+_Avoid_: Confirmation, Purchase confirmed (those belong to the Order).
 
 **Order outbox**:
-A Redis stream the reserve script appends to in the same atomic call that makes a Reservation, recording that an Order must be persisted for it. Because it is written with the Reservation, not after it, a Reservation can never exist without its outbox entry. A drainer in each API worker reads it through a consumer group, enqueues the persist-order job, and acknowledges the entry only once the job is on the queue; unacknowledged entries are retried by their drainer on its next pass and reclaimed from a dead drainer after an idle timer. The transactional-outbox pattern, with Redis as the single store.
+A Redis stream the reserve script appends to in the same atomic call that makes a Reservation, recording that an Order must be persisted for it. Because it is written with the Reservation, not after it, a Reservation can never exist without its outbox entry. A drainer in each API worker reads it through a consumer group, enqueues the persist-order job, and acknowledges the entry only once the job is on the queue; unacknowledged entries are retried by their drainer on its next pass and reclaimed from a dead drainer after an idle timer. Consumers are named per process and never expire on their own, so a drainer removes its own on graceful shutdown and, when it joins the group, prunes any consumer that is idle past the claim timer with nothing pending (the process is gone and its entries have already been reclaimed). The transactional-outbox pattern, with Redis as the single store.
 _Avoid_: Pending order, Event log.
 
 **Order**:
-The durable record that a Reservation succeeded, persisted to Postgres asynchronously after the Reservation is made. This is what "check if I secured an item" ultimately reflects, and what downstream concerns (history, reporting, refunds, fulfillment) read from. A Reservation is authoritative the instant it happens; the Order write is guaranteed-eventually and never rolled back on failure — it's retried until it lands.
+The durable record that a Reservation succeeded, persisted to Postgres asynchronously after the Reservation is made. This is the *confirmation*: what "check if I secured an item" reflects, what the User is shown as "confirmed", and what downstream concerns (history, reporting, refunds, fulfillment) read from. A Reservation is authoritative the instant it happens; the Order write is guaranteed-eventually and never rolled back on failure — it's retried until it lands.
 _Avoid_: Purchase, Transaction (as the persisted-record term — "purchase attempt" is fine as the verb for the user's action).
+
+**Secured status**:
+Where a User's purchase attempt stands, answered by `GET /purchase/:saleId` from the durable side out: `confirmed` (an Order row exists in Postgres — the only state that means "you got one"), `reserved` (a Reservation exists in Redis but its Order has not landed yet; the hold is kept and the page keeps polling), `none` (neither). Postgres is checked first; Redis only on a miss, to tell a pending hold from no attempt.
+_Avoid_: Secured (as a boolean), Pending.
 
 **Sale status**:
 Two independent terminal conditions, not one: `SoldOut` (Stock reaches zero before the end time) and `Ended` (the clock passes the end time regardless of remaining Stock). Lifecycle: `Upcoming → Active → (SoldOut | Ended)`. Once either terminal state is reached, no further Reservations are accepted.

@@ -19,8 +19,10 @@ export default defineConfig({
     root: './',
     include: ['**/*.performance-spec.ts'],
     env: e2eEnv,
-    testTimeout: 120_000,
-    hookTimeout: 120_000,
+    // Generous: a run where every request succeeds waits for its whole
+    // backlog to persist, sized by settlePoll() in support/performance-harness.ts
+    testTimeout: 600_000,
+    hookTimeout: 600_000,
     fileParallelism: false,
   },
 });
