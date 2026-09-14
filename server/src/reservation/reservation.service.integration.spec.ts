@@ -1,17 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.ts';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { parseOrderOutboxEntry } from '../order/order-outbox.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { ReservationService } from './reservation.service.ts';
 
 describe('ReservationService (integration)', () => {
-  const orderQueueProducer = {
-    enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
-  } as unknown as OrderQueueProducer;
   const redis = new Redis(REDIS_URL);
-  const service = new ReservationService(redis, orderQueueProducer);
+  const outboxKey = `order-outbox-test-${randomUUID()}`;
+  const service = new ReservationService(redis, outboxKey);
   const saleIds: string[] = [];
 
   async function freshSale(totalStock: number): Promise<string> {
@@ -21,12 +19,17 @@ describe('ReservationService (integration)', () => {
     return saleId;
   }
 
+  async function outboxEntries() {
+    const entries = await redis.xrange(outboxKey, '-', '+');
+    return entries.map(([id, fields]) => parseOrderOutboxEntry(id, fields));
+  }
+
   afterEach(async () => {
     const keys = saleIds.flatMap((saleId) => [
       stockKey(saleId),
       reservedUsersKey(saleId),
     ]);
-    if (keys.length > 0) await redis.del(...keys);
+    await redis.del(outboxKey, ...keys);
     saleIds.length = 0;
   });
 
@@ -95,5 +98,60 @@ describe('ReservationService (integration)', () => {
     expect(
       results.filter((result) => result === 'already_purchased'),
     ).toHaveLength(19);
+  });
+
+  describe('order outbox', () => {
+    it('appends one outbox entry per successful reservation, in the same script call', async () => {
+      const saleId = await freshSale(5);
+      const before = Date.now();
+
+      await service.reserve(saleId, 'user-1');
+      await service.reserve(saleId, 'user-2');
+
+      const entries = await outboxEntries();
+      expect(entries).toHaveLength(2);
+      expect(entries.map((entry) => entry.userId)).toEqual([
+        'user-1',
+        'user-2',
+      ]);
+      for (const entry of entries) {
+        expect(entry.saleId).toBe(saleId);
+        expect(new Date(entry.timestamp).getTime()).toBeGreaterThanOrEqual(
+          before,
+        );
+      }
+    });
+
+    it('appends nothing for a rejected reservation', async () => {
+      const saleId = await freshSale(1);
+      await service.reserve(saleId, 'user-1');
+
+      await service.reserve(saleId, 'user-1'); // already_purchased
+      await service.reserve(saleId, 'user-2'); // sold_out
+
+      const entries = await outboxEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].userId).toBe('user-1');
+    });
+
+    it('writes exactly as many outbox entries as units sold under concurrent load', async () => {
+      const totalStock = 10;
+      const saleId = await freshSale(totalStock);
+
+      await Promise.all(
+        Array.from({ length: 50 }, (_, i) =>
+          service.reserve(saleId, `user-${i}`),
+        ),
+      );
+
+      const entries = await outboxEntries();
+      expect(entries).toHaveLength(totalStock);
+      expect(new Set(entries.map((entry) => entry.userId)).size).toBe(
+        totalStock,
+      );
+      await expect(redis.smembers(reservedUsersKey(saleId))).resolves.toEqual(
+        expect.arrayContaining(entries.map((entry) => entry.userId)),
+      );
+    });
   });
 });

@@ -11,6 +11,7 @@ import { SPIKE_CONNECTIONS } from './support/config.ts';
 
 describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/BullMQ)', () => {
   const redis = new Redis(REDIS_URL);
+  const outboxKey = `order-outbox-perf-${randomUUID()}`;
   const saleIds: string[] = [];
 
   afterEach(async () => {
@@ -18,7 +19,7 @@ describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/B
       stockKey(saleId),
       reservedUsersKey(saleId),
     ]);
-    if (keys.length > 0) await redis.del(...keys);
+    await redis.del(outboxKey, ...keys);
     saleIds.length = 0;
   });
 
@@ -38,10 +39,13 @@ describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/B
       Array.from({ length: SPIKE_CONNECTIONS }, (_, i) =>
         redis.eval(
           RESERVE_SCRIPT,
-          2,
+          3,
           stockKey(saleId),
           reservedUsersKey(saleId),
+          outboxKey,
           `user-${i}`,
+          saleId,
+          new Date().toISOString(),
         ),
       ),
     );
@@ -52,6 +56,7 @@ describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/B
 
     const remainingStock = await redis.get(stockKey(saleId));
     expect(Number(remainingStock)).toBe(initialStock - SPIKE_CONNECTIONS);
+    await expect(redis.xlen(outboxKey)).resolves.toBe(SPIKE_CONNECTIONS);
 
     const opsPerSec = (SPIKE_CONNECTIONS / durationMs) * 1000;
     console.log(

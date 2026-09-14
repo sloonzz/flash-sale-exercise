@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import {
   afterAll,
@@ -22,7 +23,10 @@ describe('ReconciliationService (integration)', () => {
     listDeadLettered: vi.fn().mockResolvedValue([]),
   } as unknown as OrderQueueProducer;
   const redis = new Redis(REDIS_URL);
-  const reservationService = new ReservationService(redis, orderQueueProducer);
+  const reservationService = new ReservationService(
+    redis,
+    `order-outbox-test-${randomUUID()}`,
+  );
   const reconciliationService = new ReconciliationService(
     prisma,
     reservationService,

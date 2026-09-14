@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { ORDER_OUTBOX_KEY } from '../order/order-outbox.ts';
 import { REDIS_CLIENT } from '../redis/redis.constants.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { RESERVE_SCRIPT } from './reserve-script.ts';
@@ -11,11 +11,9 @@ export type ReservationResult = 'success' | 'already_purchased' | 'sold_out';
 
 @Injectable()
 export class ReservationService {
-  private readonly logger = new Logger(ReservationService.name);
-
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    private readonly orderQueueProducer: OrderQueueProducer,
+    @Inject(ORDER_OUTBOX_KEY) private readonly orderOutboxKey: string,
   ) {}
 
   async initializeStock(saleId: string, totalStock: number): Promise<void> {
@@ -46,36 +44,15 @@ export class ReservationService {
   }
 
   async reserve(saleId: string, userId: string): Promise<ReservationResult> {
-    const result = (await this.redis.eval(
+    return (await this.redis.eval(
       RESERVE_SCRIPT,
-      2,
+      3,
       stockKey(saleId),
       reservedUsersKey(saleId),
+      this.orderOutboxKey,
       userId,
+      saleId,
+      new Date().toISOString(),
     )) as ReservationResult;
-
-    if (result === 'success') {
-      void this.enqueuePersistOrder(saleId, userId);
-    }
-
-    return result;
-  }
-
-  private async enqueuePersistOrder(
-    saleId: string,
-    userId: string,
-  ): Promise<void> {
-    try {
-      await this.orderQueueProducer.enqueuePersistOrder(
-        saleId,
-        userId,
-        new Date(),
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to enqueue persist-order job for sale ${saleId}, user ${userId}`,
-        error,
-      );
-    }
   }
 }

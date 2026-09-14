@@ -32,3 +32,13 @@ export const PERSIST_ORDER_ATTEMPTS = Number(
 export const RECONCILE_SALES_WINDOW_MS = Number(
   process.env.RECONCILE_SALES_WINDOW_MS ?? 7 * 24 * 60 * 60 * 1_000,
 );
+
+// How long an order-outbox entry may sit unacknowledged (its drainer crashed,
+// or its enqueue into BullMQ failed) before any live drainer reclaims and
+// retries it. This is the self-healing timer for the "Reservation with no
+// pending Order" case — no app restart involved. Lower means faster recovery
+// but more chance of two drainers racing on the same entry (harmless: the
+// persist-order job id dedupes them).
+export const ORDER_OUTBOX_CLAIM_IDLE_MS = Number(
+  process.env.ORDER_OUTBOX_CLAIM_IDLE_MS ?? 30_000,
+);

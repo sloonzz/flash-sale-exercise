@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect } from 'vitest';
 import { DATABASE_URL, REDIS_URL } from '../../src/config/env.ts';
 import { PrismaClient } from '../../src/generated/prisma/client.ts';
 import { BULL_REDIS_CONNECTION } from '../../src/order/bull-connection.ts';
+import { ORDER_OUTBOX_DEFAULT_KEY } from '../../src/order/order-outbox.ts';
 import { PERSIST_ORDER_QUEUE } from '../../src/order/persist-order-job.ts';
 import {
   reservedUsersKey,
@@ -67,14 +68,15 @@ export function usePerformanceHarness(): PerformanceHarness {
   }, 60_000);
 
   afterEach(async () => {
+    // Settle: everything the reserve script wrote to the outbox has been
+    // moved into BullMQ, and BullMQ has persisted all of it
     await expect
       .poll(async () => {
-        const counts = await persistOrderQueue.getJobCounts(
-          'waiting',
-          'active',
-          'delayed',
-        );
-        return counts.waiting + counts.active + counts.delayed;
+        const [outbox, counts] = await Promise.all([
+          redis.xlen(ORDER_OUTBOX_DEFAULT_KEY),
+          persistOrderQueue.getJobCounts('waiting', 'active', 'delayed'),
+        ]);
+        return outbox + counts.waiting + counts.active + counts.delayed;
       }, SETTLE_POLL)
       .toBe(0);
 

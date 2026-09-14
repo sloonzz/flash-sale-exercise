@@ -89,7 +89,7 @@ Vocabulary (Sale, Stock, Reservation, Order, Reconciliation) is in [CONTEXT.md](
 
 ### System diagram
 
-**Redis decides, Postgres remembers.** The Reservation (stock decrement + one-per-user check) is one atomic Lua script in Redis, answered synchronously. The durable Order row is written to Postgres afterwards by a BullMQ consumer and retried until it lands.
+**Redis decides, Postgres remembers.** The Reservation (stock decrement + one-per-user check + an outbox entry saying "persist this") is one atomic Lua script in Redis, answered synchronously. The durable Order row is written to Postgres afterwards by a BullMQ consumer and retried until it lands.
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontSize": "18px"}, "flowchart": {"nodeSpacing": 60, "rankSpacing": 70, "padding": 16}}}%%
@@ -99,11 +99,12 @@ flowchart TB
     subgraph api["Nest API — stateless, N cluster workers"]
         HTTP["HTTP layer<br/>rate limiter · sale window check"]
         RES["Reservation<br/>atomic Lua script"]
+        DRAIN["Outbox drainer<br/>consumer group"]
         CONS["Order writer<br/>BullMQ consumer"]
     end
 
     subgraph redis["Redis"]
-        STOCK[("stock counter<br/>+ reserved-user set")]
+        STOCK[("stock counter<br/>+ reserved-user set<br/>+ order outbox stream")]
         QUEUE[("persist-order<br/>queue")]
     end
 
@@ -111,14 +112,15 @@ flowchart TB
 
     FE -->|"POST /purchase<br/>GET /sale/status (poll)"| HTTP
     HTTP --> RES
-    RES <-->|"reserve (sync)"| STOCK
-    RES -.->|"enqueue<br/>on success"| QUEUE
+    RES <-->|"reserve + XADD outbox<br/>(one script, sync)"| STOCK
+    STOCK -->|"read outbox<br/>ack after enqueue,<br/>reclaim stale on timer"| DRAIN
+    DRAIN -->|"enqueue"| QUEUE
     QUEUE -->|"process job<br/>retry w/ capped backoff,<br/>exhausted → failed set"| CONS
     CONS -->|"upsert order"| PG
     HTTP -.->|"read sale<br/>(cached in Redis)"| PG
 ```
 
-The hot path (`POST /purchase` → reserve) touches only Redis. The order write is async and idempotent (job id `saleId|userId`, upsert on `UNIQUE (sale_id, user_id)`), so retries and re-enqueues are harmless.
+The hot path (`POST /purchase` → reserve) touches only Redis, and it is a single Redis call: the same Lua script that decrements stock and marks the user also appends to the order outbox stream, so a Reservation can never exist without a record that its Order still needs persisting. The order write is async and idempotent (job id `saleId|userId`, upsert on `UNIQUE (sale_id, user_id)`), so retries and re-deliveries are harmless.
 
 ### Key decisions
 
@@ -127,6 +129,10 @@ The hot path (`POST /purchase` → reserve) touches only Redis. The order write 
   - _Trade-off:_ for a few seconds Redis is the only place a purchase exists. If Redis restarts it loses at most one second of data because of every-second persisting, and on startup the app rebuilds Redis from Postgres if anything is missing.
 
   - _Trade-off:_ consistency over availability. If Redis is unreachable the sale stops (`/purchase` and `/sale/status` return 5xx) rather than guessing, so nobody is oversold or double-charged, whereas Postgres can be down for minutes and the sale keeps running.
+
+- **Reserving an item and queuing its order are one Redis write (transactional outbox).** The same Lua call that takes the stock also appends the order to a Redis stream, so a crash can never leave a reservation with no order behind it. Each API worker drains that stream into the job queue and only acknowledges an entry once it is queued; if a worker dies mid-way, another worker picks up its entries after `ORDER_OUTBOX_CLAIM_IDLE_MS` (default 30s).
+
+  - _Trade-off:_ one more moving part on the write path (a stream, a consumer group, and an extra Redis connection per worker), and an entry left by a crashed worker waits out that idle timer before it is queued.
 
 - **A job queue writes the order to Postgres.** The queue lives in Redis, so there is nothing extra to run, and it retries with capped exponential backoff (1s doubling to 30s, ±20% jitter) until Postgres accepts the write. Each job is keyed by sale + user, so sending the same one twice does nothing.
 
@@ -148,8 +154,8 @@ The hot path (`POST /purchase` → reserve) touches only Redis. The order write 
 - Single Redis instance: Sentinel/Cluster in production to shorten the outage window, reconciliation already covers "Redis came back empty".
 - Single API process using Node `cluster` workers instead of a load balancer in front of independent API replicas. The servers are stateless, so swapping to replicas is a deployment change, not a code change.
 - No real auth: admin is a shared secret, users are a plain id.
-- No on-demand reconciliation endpoint in case of failure. Reconciliation runs only on startup (sales from the last `RECONCILE_SALES_WINDOW_MS`) and on sale creation (that sale).
-- No chaos test for a worker crash mid-request — the cluster respawns workers, and the crash window between `EVAL` and enqueue is covered by the enqueue-failure test plus startup reconciliation.
+- No on-demand reconciliation endpoint in case of failure. Reconciliation runs only on startup (sales from the last `RECONCILE_SALES_WINDOW_MS`) and on sale creation (that sale). Its "reserved user with no Order → re-enqueue" step is kept as a safety net, but the outbox is what makes that case not happen in the first place.
+- No chaos test that kills a worker process mid-request — the cluster respawns workers, and the outbox fault test covers the equivalent: an entry read by a drainer that then dies is reclaimed by a live one.
 
 ## Expected performance
 

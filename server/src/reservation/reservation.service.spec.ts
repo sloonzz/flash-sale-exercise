@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { RESERVE_SCRIPT } from './reserve-script.ts';
 import { SEED_RESERVED_USERS_SCRIPT } from './seed-reserved-users-script.ts';
@@ -15,19 +14,24 @@ describe('ReservationService', () => {
     sismember: vi.fn(),
     smembers: vi.fn(),
   };
-  const orderQueueProducer = {
-    enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
-  } as unknown as OrderQueueProducer;
+  const outboxKey = 'order-outbox-test';
   const service = new ReservationService(
     mockRedis as unknown as Redis,
-    orderQueueProducer,
+    outboxKey,
   );
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('runs the reservation script against the sale-specific stock and reserved-users keys', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('runs the reservation script against the sale-specific stock and reserved-users keys and the order outbox', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-09-14T12:00:00.000Z');
+    vi.setSystemTime(now);
     mockRedis.eval.mockResolvedValue('success');
     const saleId = randomUUID();
 
@@ -35,10 +39,13 @@ describe('ReservationService', () => {
 
     expect(mockRedis.eval).toHaveBeenCalledWith(
       RESERVE_SCRIPT,
-      2,
+      3,
       stockKey(saleId),
       reservedUsersKey(saleId),
+      outboxKey,
       'user-1',
+      saleId,
+      now.toISOString(),
     );
   });
 
@@ -53,36 +60,12 @@ describe('ReservationService', () => {
     },
   );
 
-  it('enqueues a persist-order job only when the reservation succeeds', async () => {
+  it('makes exactly one Redis call per reservation: the outbox write is inside the script, not a follow-up', async () => {
     mockRedis.eval.mockResolvedValue('success');
-    const saleId = randomUUID();
-
-    await service.reserve(saleId, 'user-1');
-
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
-      saleId,
-      'user-1',
-      expect.any(Date),
-    );
-  });
-
-  it('does not enqueue a persist-order job when the reservation is rejected', async () => {
-    mockRedis.eval.mockResolvedValue('sold_out');
 
     await service.reserve(randomUUID(), 'user-1');
 
-    expect(orderQueueProducer.enqueuePersistOrder).not.toHaveBeenCalled();
-  });
-
-  it('does not let a failed enqueue fail an already-successful reservation', async () => {
-    mockRedis.eval.mockResolvedValue('success');
-    vi.mocked(orderQueueProducer.enqueuePersistOrder).mockRejectedValueOnce(
-      new Error('queue unavailable'),
-    );
-
-    await expect(service.reserve(randomUUID(), 'user-1')).resolves.toBe(
-      'success',
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
   it('seeds stock with SET NX so an existing counter is never overwritten', async () => {
