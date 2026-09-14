@@ -8,7 +8,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { REDIS_URL } from '../config/env.ts';
+import { RECONCILE_SALES_WINDOW_MS, REDIS_URL } from '../config/env.ts';
 import { OrderQueueProducer } from '../order/order-queue.producer.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.ts';
@@ -19,6 +19,7 @@ describe('ReconciliationService (integration)', () => {
   const prisma = new PrismaService();
   const orderQueueProducer = {
     enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
+    listDeadLettered: vi.fn().mockResolvedValue([]),
   } as unknown as OrderQueueProducer;
   const redis = new Redis(REDIS_URL);
   const reservationService = new ReservationService(redis, orderQueueProducer);
@@ -33,13 +34,16 @@ describe('ReconciliationService (integration)', () => {
     await prisma.onModuleInit();
   });
 
-  async function createSale(totalStock: number): Promise<string> {
+  async function createSale(
+    totalStock: number,
+    endTime = new Date(Date.now() + 60_000),
+  ): Promise<string> {
     const sale = await prisma.sale.create({
       data: {
         productName: 'Test Product',
         totalStock,
-        startTime: new Date(),
-        endTime: new Date(Date.now() + 60_000),
+        startTime: new Date(endTime.getTime() - 60_000),
+        endTime,
       },
     });
     saleIds.push(sale.id);
@@ -136,6 +140,50 @@ describe('ReconciliationService (integration)', () => {
     expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
     expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
       saleId,
+      'user-2',
+      expect.any(Date),
+    );
+  });
+
+  it('startup reconciliation repairs an older sale, not just the newest one', async () => {
+    const oldSaleId = await createSale(5);
+    await prisma.order.create({
+      data: { saleId: oldSaleId, userId: 'user-1' },
+    });
+    await reservationService.initializeStock(oldSaleId, 3);
+    await reservationService.seedReservedUsers(oldSaleId, ['user-1', 'user-2']);
+    const newSaleId = await createSale(7);
+
+    await reconciliationService.reconcileAllSales();
+
+    expect(await redis.get(stockKey(newSaleId))).toBe('7');
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      oldSaleId,
+      'user-2',
+      expect.any(Date),
+    );
+  });
+
+  it('startup reconciliation skips sales that ended outside the window', async () => {
+    const staleSaleId = await createSale(
+      5,
+      new Date(Date.now() - RECONCILE_SALES_WINDOW_MS - 60_000),
+    );
+    await reservationService.seedReservedUsers(staleSaleId, ['user-1']);
+    const recentSaleId = await createSale(
+      5,
+      new Date(Date.now() - RECONCILE_SALES_WINDOW_MS + 60_000),
+    );
+    await reservationService.seedReservedUsers(recentSaleId, ['user-2']);
+
+    await reconciliationService.reconcileAllSales();
+
+    expect(await redis.get(stockKey(staleSaleId))).toBeNull();
+    expect(await redis.get(stockKey(recentSaleId))).toBe('5');
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      recentSaleId,
       'user-2',
       expect.any(Date),
     );

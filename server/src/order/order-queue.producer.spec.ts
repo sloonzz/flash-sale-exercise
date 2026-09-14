@@ -7,6 +7,7 @@ import { PersistOrderJobData } from './persist-order-job.ts';
 describe('OrderQueueProducer', () => {
   const queue = {
     add: vi.fn().mockResolvedValue(undefined),
+    getFailed: vi.fn().mockResolvedValue([]),
   } as unknown as Queue<PersistOrderJobData>;
   const producer = new OrderQueueProducer(queue);
 
@@ -27,5 +28,33 @@ describe('OrderQueueProducer', () => {
       // (verified against a real queue in order-queue.producer.integration.spec.ts).
       expect.objectContaining({ jobId: `${saleId}|user-1` }),
     );
+  });
+
+  describe('listDeadLettered', () => {
+    const failedJob = (saleId: string, userId: string) => ({
+      data: { saleId, userId, timestamp: '2026-01-01T00:00:00.000Z' },
+      retry: vi.fn(),
+    });
+
+    it('lists the users of failed jobs belonging to the given sale without touching them', async () => {
+      const saleId = randomUUID();
+      const mine = failedJob(saleId, 'user-1');
+      const theirs = failedJob(randomUUID(), 'user-2');
+      vi.mocked(queue.getFailed).mockResolvedValue([mine, theirs] as never);
+
+      await expect(producer.listDeadLettered(saleId)).resolves.toEqual([
+        'user-1',
+      ]);
+      expect(mine.retry).not.toHaveBeenCalled();
+      expect(theirs.retry).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty list when nothing is dead-lettered', async () => {
+      vi.mocked(queue.getFailed).mockResolvedValue([]);
+
+      await expect(producer.listDeadLettered(randomUUID())).resolves.toEqual(
+        [],
+      );
+    });
   });
 });

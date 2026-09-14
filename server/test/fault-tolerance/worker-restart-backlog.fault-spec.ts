@@ -83,9 +83,7 @@ describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
         ctx.logger.drain();
         ctx.app = await bootApp(ctx.logger);
         expect(
-          ctx.logger.hasLogged(
-            'Failed to reconcile the current sale on startup',
-          ),
+          ctx.logger.hasLogged('Failed to reconcile sales on startup'),
         ).toBe(true);
       } finally {
         // Bring Postgres back

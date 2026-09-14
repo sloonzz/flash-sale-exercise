@@ -1,13 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
+import { PERSIST_ORDER_ATTEMPTS } from '../config/env.ts';
 import {
+  PERSIST_ORDER_BACKOFF_TYPE,
   PERSIST_ORDER_QUEUE,
   PersistOrderJobData,
 } from './persist-order-job.ts';
-
-const PERSIST_ORDER_ATTEMPTS = 100_000;
-const PERSIST_ORDER_BACKOFF_MS = 5_000;
 
 @Injectable()
 export class OrderQueueProducer {
@@ -27,9 +26,17 @@ export class OrderQueueProducer {
       {
         jobId: `${saleId}|${userId}`,
         attempts: PERSIST_ORDER_ATTEMPTS,
-        backoff: { type: 'fixed', delay: PERSIST_ORDER_BACKOFF_MS },
+        // Delay is computed by the worker's backoffStrategy (see consumer)
+        backoff: { type: PERSIST_ORDER_BACKOFF_TYPE },
         removeOnComplete: true,
       },
     );
+  }
+
+  async listDeadLettered(saleId: string): Promise<string[]> {
+    const failed = await this.queue.getFailed();
+    return failed
+      .filter((job) => job.data.saleId === saleId)
+      .map((job) => job.data.userId);
   }
 }

@@ -38,6 +38,9 @@ class BufferedLogger implements LoggerService {
   hasLogged(substring: string): boolean {
     return this.lines.some((line) => line.includes(substring));
   }
+  count(substring: string): number {
+    return this.lines.filter((line) => line.includes(substring)).length;
+  }
   private push(level: string, message: unknown, params: unknown[]): void {
     const context =
       typeof params.at(-1) === 'string' ? (params.pop() as string) : undefined;

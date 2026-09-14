@@ -1,8 +1,13 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { RECONCILE_SALES_WINDOW_MS } from '../config/env.ts';
 import { OrderQueueProducer } from '../order/order-queue.producer.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 
+/**
+ * Service for handling failures in-between the services: DB, backend, Queue
+ * This service reconciles the data between the three
+ */
 @Injectable()
 export class ReconciliationService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ReconciliationService.name);
@@ -15,24 +20,28 @@ export class ReconciliationService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     try {
-      await this.reconcileCurrentSale();
+      await this.reconcileAllSales();
     } catch (error) {
-      this.logger.error(
-        'Failed to reconcile the current sale on startup',
-        error,
-      );
+      this.logger.error('Failed to reconcile sales on startup', error);
     }
   }
 
-  async reconcileCurrentSale(): Promise<void> {
-    const sale = await this.prisma.sale.findFirst({
+  // Bounded by end time so startup cost doesn't grow with the whole sales table
+  async reconcileAllSales(): Promise<void> {
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        endTime: { gte: new Date(Date.now() - RECONCILE_SALES_WINDOW_MS) },
+      },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });
-    if (!sale) {
-      return;
+    for (const sale of sales) {
+      try {
+        await this.reconcile(sale.id);
+      } catch (error) {
+        this.logger.error(`Failed to reconcile sale ${sale.id}`, error);
+      }
     }
-    await this.reconcile(sale.id);
   }
 
   async reconcile(saleId: string): Promise<void> {
@@ -73,14 +82,28 @@ export class ReconciliationService implements OnApplicationBootstrap {
       return;
     }
 
+    const deadLettered = new Set(
+      await this.orderQueueProducer.listDeadLettered(saleId),
+    );
+    if (deadLettered.size > 0) {
+      this.logger.error(
+        `${deadLettered.size} dead-lettered persist-order job(s) for sale ${saleId} left in 'failed' — needs manual intervention`,
+      );
+    }
+
+    const toEnqueue = orphaned.filter((userId) => !deadLettered.has(userId));
+    if (toEnqueue.length === 0) {
+      return;
+    }
+
     const timestamp = new Date();
     await Promise.all(
-      orphaned.map((userId) =>
+      toEnqueue.map((userId) =>
         this.orderQueueProducer.enqueuePersistOrder(saleId, userId, timestamp),
       ),
     );
     this.logger.warn(
-      `Re-enqueued ${orphaned.length} persist-order job(s) for sale ${saleId} whose Reservations had no Order`,
+      `Re-enqueued ${toEnqueue.length} persist-order job(s) for sale ${saleId} whose Reservations had no Order`,
     );
   }
 }
