@@ -91,59 +91,34 @@ Vocabulary (Sale, Stock, Reservation, Order, Reconciliation) is in [CONTEXT.md](
 
 **Redis decides, Postgres remembers.** The Reservation (stock decrement + one-per-user check) is one atomic Lua script in Redis, answered synchronously. The durable Order row is written to Postgres afterwards by a BullMQ consumer and retried until it lands.
 
-**Flowchart**
-
 ```mermaid
-flowchart LR
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "18px"}, "flowchart": {"nodeSpacing": 60, "rankSpacing": 70, "padding": 16}}}%%
+flowchart TB
     FE["Browser<br/>React frontend"]
 
-    subgraph api["Nest API (stateless, N cluster workers)"]
-        direction TB
+    subgraph api["Nest API — stateless, N cluster workers"]
         HTTP["HTTP layer<br/>rate limiter · sale window check"]
         RES["Reservation<br/>atomic Lua script"]
         CONS["Order writer<br/>BullMQ consumer"]
-        HTTP --> RES
     end
 
     subgraph redis["Redis"]
-        STOCK[("stock counter +<br/>reserved-user set")]
-        QUEUE[("persist-order queue")]
+        STOCK[("stock counter<br/>+ reserved-user set")]
+        QUEUE[("persist-order<br/>queue")]
     end
 
     PG[("Postgres<br/>sales · orders")]
 
     FE -->|"POST /purchase<br/>GET /sale/status (poll)"| HTTP
+    HTTP --> RES
     RES <-->|"reserve (sync)"| STOCK
-    RES -.->|"enqueue on success"| QUEUE
-    QUEUE -->|"process, capped exp. backoff"| CONS
+    RES -.->|"enqueue<br/>on success"| QUEUE
+    QUEUE -->|"process job<br/>retry w/ capped backoff,<br/>exhausted → failed set"| CONS
     CONS -->|"upsert order"| PG
-    CONS -.->|"attempts exhausted → failed set"| QUEUE
-    HTTP -.->|"read sale, cached in Redis"| PG
+    HTTP -.->|"read sale<br/>(cached in Redis)"| PG
 ```
 
-**Sequence diagram**
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant B as Browser
-    participant API as Nest API
-    participant R as Redis
-    participant PG as Postgres
-
-    B->>API: POST /purchase { userId, saleId }
-    API->>API: sale window check (not_active / ended / invalid_sale)
-    API->>R: EVAL reserve script (userId)
-    Note over R: atomic: already reserved? → already_purchased<br/>stock = 0? → sold_out<br/>else DECR stock + SADD user → success
-    R-->>API: success | already_purchased | sold_out
-    API-->>B: { result }  ⟵ Reservation is authoritative here
-    API-)R: enqueue persist-order job (id = saleId|userId)
-    R->>API: BullMQ consumer picks up job
-    API->>PG: UPSERT orders (sale_id, user_id)
-    Note over API,PG: retried with capped exponential backoff (1s → 30s) until it lands — never rolled back
-```
-
-Steps 1–5 are the hot path and touch only Redis. Steps 6–8 are async and idempotent (job id `saleId|userId`, upsert on `UNIQUE (sale_id, user_id)`), so retries and re-enqueues are harmless.
+The hot path (`POST /purchase` → reserve) touches only Redis. The order write is async and idempotent (job id `saleId|userId`, upsert on `UNIQUE (sale_id, user_id)`), so retries and re-enqueues are harmless.
 
 ### Key decisions
 
