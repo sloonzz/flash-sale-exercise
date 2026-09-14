@@ -36,24 +36,30 @@ describe('Postgres-write retry (fault tolerance)', () => {
 
     try {
       try {
+        // Take Postgres down before the purchase
         await stopContainer(ctx.containerId);
 
+        // The Reservation still succeeds in Redis
         const result = await reservationService.reserve(saleId, 'user-1');
         expect(result).toBe('success');
         await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('4');
 
+        // Give the consumer time to fail a few attempts against dead Postgres
         await new Promise((resolve) => setTimeout(resolve, 6_000));
       } finally {
+        // Bring Postgres back
         await startContainer(ctx.containerId);
         await waitForHealthy(ctx.containerId, 30_000);
       }
 
+      // The retried job eventually lands the Order
       await waitForOrder(ctx.prisma, saleId, 'user-1', 30_000);
       const order = await ctx.prisma.order.findUniqueOrThrow({
         where: { saleId_userId: { saleId, userId: 'user-1' } },
       });
       expect(order.userId).toBe('user-1');
 
+      // Stock was never touched by the outage
       await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('4');
     } finally {
       await cleanupFaultTestSale(ctx, saleId);

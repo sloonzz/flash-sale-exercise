@@ -25,6 +25,7 @@ describe('ReconciliationService (integration)', () => {
   const reconciliationService = new ReconciliationService(
     prisma,
     reservationService,
+    orderQueueProducer,
   );
   const saleIds: string[] = [];
 
@@ -46,6 +47,7 @@ describe('ReconciliationService (integration)', () => {
   }
 
   afterEach(async () => {
+    vi.clearAllMocks();
     const keys = saleIds.flatMap((saleId) => [
       stockKey(saleId),
       reservedUsersKey(saleId),
@@ -121,5 +123,21 @@ describe('ReconciliationService (integration)', () => {
     await expect(redis.smembers(reservedUsersKey(saleId))).resolves.toEqual([
       'user-1',
     ]);
+  });
+
+  it('re-enqueues persist-order jobs for reserved users whose Order never landed', async () => {
+    const saleId = await createSale(5);
+    await prisma.order.create({ data: { saleId, userId: 'user-1' } });
+    await reservationService.initializeStock(saleId, 3);
+    await reservationService.seedReservedUsers(saleId, ['user-1', 'user-2']);
+
+    await reconciliationService.reconcile(saleId);
+
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
+    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      saleId,
+      'user-2',
+      expect.any(Date),
+    );
   });
 });

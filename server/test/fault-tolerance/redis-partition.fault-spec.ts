@@ -1,7 +1,10 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDIS_COMMAND_TIMEOUT_MS } from '../../src/config/env.ts';
-import { stockKey } from '../../src/reservation/reservation-keys.ts';
+import {
+  reservedUsersKey,
+  stockKey,
+} from '../../src/reservation/reservation-keys.ts';
 import {
   connectNetwork,
   disconnectNetwork,
@@ -24,9 +27,6 @@ describe('Redis network-partition (fault tolerance)', () => {
   let redisNetwork: string;
 
   beforeAll(async () => {
-    // Longer than the app's own REDIS_COMMAND_TIMEOUT_MS: this client is
-    // only used for assertions and reconnect polling once the partition is
-    // over, so it should never itself be the thing timing out first.
     ctx = await setupFaultTest(REDIS_PORT, {
       commandTimeout: REDIS_COMMAND_TIMEOUT_MS + 1_000,
     });
@@ -43,6 +43,7 @@ describe('Redis network-partition (fault tolerance)', () => {
     const saleId = await createSale(ctx.app, { totalStock: 3 });
 
     try {
+      // One healthy purchase before the outage
       await request(ctx.app.getHttpServer())
         .post('/purchase')
         .send({ userId: 'user-1', saleId })
@@ -51,8 +52,10 @@ describe('Redis network-partition (fault tolerance)', () => {
       await waitForOrder(ctx.prisma, saleId, 'user-1', 10_000);
 
       try {
+        // Cut Redis off the network
         await disconnectNetwork(redisNetwork, ctx.containerId);
 
+        // Status and purchase both fail with a 5xx instead of hanging
         const statusDuringOutage = await request(ctx.app.getHttpServer())
           .get('/sale/status')
           .timeout(5_000);
@@ -64,9 +67,11 @@ describe('Redis network-partition (fault tolerance)', () => {
           .timeout(5_000);
         expect(purchaseDuringOutage.status).toBeGreaterThanOrEqual(500);
       } finally {
+        // Reconnect Redis
         await connectNetwork(redisNetwork, ctx.containerId);
       }
 
+      // Wait for the app's Redis client to come back
       await waitUntil(
         async () => {
           try {
@@ -79,6 +84,16 @@ describe('Redis network-partition (fault tolerance)', () => {
         { timeoutMs: 15_000, description: 'Redis client to reconnect' },
       );
 
+      // The failed purchase left no partial state behind
+      await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('2');
+      await expect(
+        ctx.redis.sismember(reservedUsersKey(saleId), 'user-2'),
+      ).resolves.toBe(0);
+      await expect(
+        ctx.prisma.order.count({ where: { saleId, userId: 'user-2' } }),
+      ).resolves.toBe(0);
+
+      // Retrying the purchase now succeeds as a first purchase
       await request(ctx.app.getHttpServer())
         .post('/purchase')
         .send({ userId: 'user-2', saleId })
@@ -87,6 +102,9 @@ describe('Redis network-partition (fault tolerance)', () => {
       await waitForOrder(ctx.prisma, saleId, 'user-2', 10_000);
 
       await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('1');
+      await expect(
+        ctx.prisma.order.count({ where: { saleId, userId: 'user-2' } }),
+      ).resolves.toBe(1);
     } finally {
       await cleanupFaultTestSale(ctx, saleId);
     }

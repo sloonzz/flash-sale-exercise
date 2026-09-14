@@ -32,6 +32,10 @@ export class ReservationService {
     return result === 1;
   }
 
+  async getReservedUsers(saleId: string): Promise<string[]> {
+    return this.redis.smembers(reservedUsersKey(saleId));
+  }
+
   async seedReservedUsers(saleId: string, userIds: string[]): Promise<void> {
     await this.redis.eval(
       SEED_RESERVED_USERS_SCRIPT,

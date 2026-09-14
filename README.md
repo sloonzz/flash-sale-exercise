@@ -55,14 +55,15 @@ With the app running (`yarn dev`), a typical walkthrough:
 
 ## Running tests
 
-There are four kinds of server tests, from fastest/narrowest to slowest/broadest:
+There are five kinds of server tests, from fastest/narrowest to slowest/broadest:
 
 - **Unit** (`*.spec.ts`) — no external infra required.
 - **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres/BullMQ directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
 - **E2E** (`*.e2e-spec.ts`) — spin up the Nest app in-process and exercise it over HTTP with supertest.
 - **Performance** (`*.performance-spec.ts`) — load-test the real app under `autocannon`/concurrent load, either against real Redis directly (`redis-reserve.performance-spec.ts`) or against a clustered server process (`purchase.performance-spec.ts`, `sale-status.performance-spec.ts`). Each HTTP suite runs under two load profiles: a short **spike** of many connections and a longer **stress** run with fewer connections.
+- **Fault tolerance** (`*.fault-spec.ts`) — boot the real app and then break its infra out from under it via the Docker CLI: stopping Postgres mid-purchase (write retry), wiping Redis (stock reconciliation from Postgres), network-partitioning Redis (command timeouts), restarting the app with a BullMQ backlog still failing against a dead Postgres (exactly-once drain), and a persist-order enqueue that fails after the Reservation landed (re-enqueued by startup reconciliation). Each suite checks the app recovers with no lost or duplicated orders. Requires `docker` on your PATH; the suites run one file at a time since they take down the shared containers.
 
-E2E and performance tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
+E2E, performance and fault-tolerance tests run against an isolated database/Redis logical DB (see `server/.env.e2e`) rather than your dev environment, so they never read or clobber dev data. That database only exists if you're on a fresh Postgres volume (created by `docker/postgres-init/01-create-e2e-db.sql`) or you migrate it yourself:
 
 ```sh
 yarn workspace server run migrate:e2e-db
@@ -72,9 +73,12 @@ Then, from the repo root:
 
 ```sh
 yarn test:unit         # unit tests
-yarn test:integration  # integration tests (needs yarn dev's infra running)
+
+# Everything below needs the yarn dev's infra (DB and Redis) running
+yarn test:integration  # integration tests
 yarn test:e2e          # e2e tests (needs the e2e db migrated, see above)
 yarn test:performance  # performance tests (same isolated db/redis as e2e)
+yarn test:fault-tolerance  # fault-tolerance tests (same isolated db/redis; stops/partitions the Docker containers)
 ```
 
 Performance tests default to a 4-worker clustered server and can be tuned via env vars under `.env.e2e.` see the `test/support/config.ts` file for more details.

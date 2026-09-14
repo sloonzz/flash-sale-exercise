@@ -35,6 +35,9 @@ class BufferedLogger implements LoggerService {
     this.lines = [];
     return lines;
   }
+  hasLogged(substring: string): boolean {
+    return this.lines.some((line) => line.includes(substring));
+  }
   private push(level: string, message: unknown, params: unknown[]): void {
     const context =
       typeof params.at(-1) === 'string' ? (params.pop() as string) : undefined;
@@ -61,16 +64,7 @@ export async function setupFaultTest(
 ): Promise<FaultTestContext> {
   process.env.ADMIN_KEY = ADMIN_KEY;
   const logger = new BufferedLogger();
-
-  const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
-  })
-    .setLogger(logger)
-    .compile();
-
-  const app = moduleFixture.createNestApplication({ logger });
-  await app.init();
-  await app.listen(0);
+  const app = await bootApp(logger);
 
   const containerId = await findContainerByPublishedPort(containerPort);
 
@@ -81,6 +75,21 @@ export async function setupFaultTest(
     redis: new Redis(REDIS_URL, redisOptions ?? {}),
     logger,
   };
+}
+
+export async function bootApp(
+  logger: BufferedLogger,
+): Promise<INestApplication> {
+  const moduleFixture: TestingModule = await Test.createTestingModule({
+    imports: [AppModule],
+  })
+    .setLogger(logger)
+    .compile();
+
+  const app = moduleFixture.createNestApplication({ logger });
+  await app.init();
+  await app.listen(0);
+  return app;
 }
 
 export function dumpAppLogsOnFailure(getCtx: () => FaultTestContext): void {
@@ -136,6 +145,20 @@ export async function waitUntil(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for: ${description}`);
+}
+
+export async function waitForValue<T>(
+  check: () => Promise<T | null>,
+  options: { timeoutMs: number; intervalMs?: number; description: string },
+): Promise<T> {
+  const { timeoutMs, intervalMs = 250, description } = options;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await check();
+    if (value !== null) return value;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for: ${description}`);
