@@ -22,7 +22,13 @@ This is a Yarn workspaces monorepo:
    yarn generate
    ```
 
-3. Run the app. This starts the Docker infra (Postgres and Redis) and the API and frontend together:
+3. Copy env file:
+
+   ```sh
+   cp server/.env.example server/.env
+   ```
+
+4. Run the app. This starts the Docker infra (Postgres and Redis) and the API and frontend together:
 
    ```sh
    yarn dev
@@ -30,16 +36,10 @@ This is a Yarn workspaces monorepo:
 
    Or run just one, from the repo root: `yarn workspace server run dev` / `yarn workspace frontend run dev`.
 
-4. Apply database migrations (first time, and whenever the schema changes):
+5. Apply database migrations (first time, and whenever the schema changes):
 
    ```sh
    yarn migrate:db
-   ```
-
-5. Copy env file:
-
-   ```sh
-   cp server/.env.example server/.env
    ```
 
 ## User flow
