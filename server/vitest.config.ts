@@ -9,7 +9,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.spec.ts'],
-    // Integration specs hit real Redis/Postgres/BullMQ and run separately
+    // Integration specs hit real Redis/Postgres and run separately
     // via `yarn test:integration` (see vitest.config.integration.ts) so the
     // default unit run never touches real infra.
     exclude: ['**/node_modules/**', '**/*.integration.spec.ts'],

@@ -30,7 +30,7 @@ describe('Postgres-write retry (fault tolerance)', () => {
 
   dumpAppLogsOnFailure(() => ctx);
 
-  it('retries the BullMQ consumer until the Order lands, without the Postgres outage ever affecting the Reservation', async () => {
+  it('retries the outbox drainer until the Order lands, without the Postgres outage ever affecting the Reservation', async () => {
     const saleId = await createSale(ctx.app, { totalStock: 5 });
     const reservationService = ctx.app.get(ReservationService);
 
@@ -44,7 +44,7 @@ describe('Postgres-write retry (fault tolerance)', () => {
         expect(result).toBe('success');
         await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('4');
 
-        // Give the consumer time to fail a few attempts against dead Postgres
+        // Give the drainer time to fail a few attempts against dead Postgres
         await new Promise((resolve) => setTimeout(resolve, 6_000));
       } finally {
         // Bring Postgres back
@@ -52,7 +52,7 @@ describe('Postgres-write retry (fault tolerance)', () => {
         await waitForHealthy(ctx.containerId, 30_000);
       }
 
-      // The retried job eventually lands the Order
+      // The retried entry eventually lands the Order
       await waitForOrder(ctx.prisma, saleId, 'user-1', 30_000);
       const order = await ctx.prisma.order.findUniqueOrThrow({
         where: { saleId_userId: { saleId, userId: 'user-1' } },

@@ -17,10 +17,11 @@ export const REDIS_COMMAND_TIMEOUT_MS = Number(
   process.env.REDIS_COMMAND_TIMEOUT_MS ?? 3000,
 );
 
-// How many times a persist-order job is attempted before it is dead-lettered
-// (left in BullMQ's `failed` set and alerted on, never retried automatically).
-// With the capped exponential backoff in persist-order-job.ts, 50 attempts
-// ≈ 23 minutes of retrying.
+// How many times an order-outbox entry is written to Postgres before it is
+// dead-lettered (moved to the dead-letter stream and alerted on, never retried
+// automatically). With the capped exponential backoff in
+// persist-order-retry.ts (capped at half ORDER_OUTBOX_CLAIM_IDLE_MS between
+// passes), 50 attempts ≈ 12 minutes of retrying.
 export const PERSIST_ORDER_ATTEMPTS = Number(
   process.env.PERSIST_ORDER_ATTEMPTS ?? 50,
 );
@@ -33,12 +34,12 @@ export const RECONCILE_SALES_WINDOW_MS = Number(
   process.env.RECONCILE_SALES_WINDOW_MS ?? 7 * 24 * 60 * 60 * 1_000,
 );
 
-// How long an order-outbox entry may sit unacknowledged (its drainer crashed,
-// or its enqueue into BullMQ failed) before any live drainer reclaims and
-// retries it. This is the self-healing timer for the "Reservation with no
-// pending Order" case — no app restart involved. Lower means faster recovery
-// but more chance of two drainers racing on the same entry (harmless: the
-// persist-order job id dedupes them).
+// How long an order-outbox entry may sit unacknowledged because its drainer
+// crashed before any live drainer reclaims and retries it. This is the
+// self-healing timer for the "Reservation with no pending Order" case — no
+// app restart involved. Lower means faster recovery but more chance of two
+// drainers racing on the same entry (harmless: the Order insert skips
+// duplicates).
 export const ORDER_OUTBOX_CLAIM_IDLE_MS = Number(
   process.env.ORDER_OUTBOX_CLAIM_IDLE_MS ?? 30_000,
 );

@@ -1,28 +1,18 @@
-import { BullModule } from '@nestjs/bullmq';
 import { Global, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module.ts';
 import { RedisModule } from '../redis/redis.module.ts';
-import { BULL_REDIS_CONNECTION } from './bull-connection.ts';
 import { ORDER_OUTBOX_DEFAULT_KEY, ORDER_OUTBOX_KEY } from './order-outbox.ts';
 import { OrderOutboxDrainer } from './order-outbox.drainer.ts';
-import { OrderQueueConsumer } from './order-queue.consumer.ts';
-import { OrderQueueProducer } from './order-queue.producer.ts';
-import { PERSIST_ORDER_QUEUE } from './persist-order-job.ts';
+import { OrderOutboxService } from './order-outbox.service.ts';
 
 @Global()
 @Module({
-  imports: [
-    PrismaModule,
-    RedisModule,
-    BullModule.forRoot({ connection: BULL_REDIS_CONNECTION }),
-    BullModule.registerQueue({ name: PERSIST_ORDER_QUEUE }),
-  ],
+  imports: [PrismaModule, RedisModule],
   providers: [
     { provide: ORDER_OUTBOX_KEY, useValue: ORDER_OUTBOX_DEFAULT_KEY },
-    OrderQueueProducer,
-    OrderQueueConsumer,
+    OrderOutboxService,
     OrderOutboxDrainer,
   ],
-  exports: [ORDER_OUTBOX_KEY, OrderQueueProducer],
+  exports: [ORDER_OUTBOX_KEY, OrderOutboxService],
 })
 export class OrderModule {}

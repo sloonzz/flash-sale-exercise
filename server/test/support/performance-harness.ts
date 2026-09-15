@@ -1,14 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import { PrismaPg } from '@prisma/adapter-pg';
 import autocannon from 'autocannon';
-import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, expect } from 'vitest';
 import { DATABASE_URL, REDIS_URL } from '../../src/config/env.ts';
 import { PrismaClient } from '../../src/generated/prisma/client.ts';
-import { BULL_REDIS_CONNECTION } from '../../src/order/bull-connection.ts';
 import { ORDER_OUTBOX_DEFAULT_KEY } from '../../src/order/order-outbox.ts';
-import { PERSIST_ORDER_QUEUE } from '../../src/order/persist-order-job.ts';
 import {
   reservedUsersKey,
   stockKey,
@@ -66,9 +63,6 @@ export function usePerformanceHarness(): PerformanceHarness {
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: DATABASE_URL }),
   });
-  const persistOrderQueue = new Queue(PERSIST_ORDER_QUEUE, {
-    connection: BULL_REDIS_CONNECTION,
-  });
   const saleIds: string[] = [];
 
   beforeAll(async () => {
@@ -79,12 +73,9 @@ export function usePerformanceHarness(): PerformanceHarness {
     });
   }, 60_000);
 
-  async function persistBacklog(): Promise<number> {
-    const [outbox, counts] = await Promise.all([
-      redis.xlen(ORDER_OUTBOX_DEFAULT_KEY),
-      persistOrderQueue.getJobCounts('waiting', 'active', 'delayed'),
-    ]);
-    return outbox + counts.waiting + counts.active + counts.delayed;
+  // An entry stays in the stream until its Order row is in Postgres
+  function persistBacklog(): Promise<number> {
+    return redis.xlen(ORDER_OUTBOX_DEFAULT_KEY);
   }
 
   afterEach(async () => {
@@ -105,7 +96,6 @@ export function usePerformanceHarness(): PerformanceHarness {
 
   afterAll(async () => {
     server.stop();
-    await persistOrderQueue.close();
     await prisma.$disconnect();
     await redis.quit();
   });

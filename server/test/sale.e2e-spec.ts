@@ -304,7 +304,7 @@ describe('Sale API (e2e)', () => {
     it('reads as reserved, not confirmed, while the Reservation has no Order yet', async () => {
       const saleId = await createSale();
       // A Reservation with no Order: what the check endpoint sees between the
-      // reserve script returning and the persist-order job landing.
+      // reserve script returning and the drainer writing the Order.
       await redis.sadd(reservedUsersKey(saleId), 'held-user');
 
       const response = await request(app.getHttpServer())

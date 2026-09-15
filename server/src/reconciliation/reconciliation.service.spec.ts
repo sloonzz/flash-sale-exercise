@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECONCILE_SALES_WINDOW_MS } from '../config/env.ts';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { OrderOutboxService } from '../order/order-outbox.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 import { ReconciliationService } from './reconciliation.service.ts';
@@ -16,21 +16,21 @@ describe('ReconciliationService', () => {
     seedReservedUsers: vi.fn().mockResolvedValue(undefined),
     getReservedUsers: vi.fn().mockResolvedValue([]),
   } as unknown as ReservationService;
-  const orderQueueProducer = {
-    enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
+  const orderOutbox = {
+    append: vi.fn().mockResolvedValue(undefined),
     listDeadLettered: vi.fn().mockResolvedValue([]),
-  } as unknown as OrderQueueProducer;
+  } as unknown as OrderOutboxService;
   const reconciliationService = new ReconciliationService(
     prisma,
     reservationService,
-    orderQueueProducer,
+    orderOutbox,
   );
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.order.findMany).mockResolvedValue([]);
     vi.mocked(reservationService.getReservedUsers).mockResolvedValue([]);
-    vi.mocked(orderQueueProducer.listDeadLettered).mockResolvedValue([]);
+    vi.mocked(orderOutbox.listDeadLettered).mockResolvedValue([]);
   });
 
   describe('onApplicationBootstrap', () => {
@@ -94,8 +94,8 @@ describe('ReconciliationService', () => {
 
       await reconciliationService.onApplicationBootstrap();
 
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      expect(orderOutbox.append).toHaveBeenCalledTimes(1);
+      expect(orderOutbox.append).toHaveBeenCalledWith(
         oldSaleId,
         'user-orphan',
         expect.any(Date),
@@ -231,7 +231,7 @@ describe('ReconciliationService', () => {
   });
 
   describe('orphaned reservations', () => {
-    it('re-enqueues a persist-order job for each reserved user with no Order', async () => {
+    it('re-appends an outbox entry for each reserved user with no Order', async () => {
       const saleId = randomUUID();
       vi.mocked(prisma.sale.findUniqueOrThrow).mockResolvedValue({
         totalStock: 10,
@@ -247,13 +247,13 @@ describe('ReconciliationService', () => {
 
       await reconciliationService.reconcile(saleId);
 
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(2);
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      expect(orderOutbox.append).toHaveBeenCalledTimes(2);
+      expect(orderOutbox.append).toHaveBeenCalledWith(
         saleId,
         'user-2',
         expect.any(Date),
       );
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      expect(orderOutbox.append).toHaveBeenCalledWith(
         saleId,
         'user-3',
         expect.any(Date),
@@ -274,11 +274,11 @@ describe('ReconciliationService', () => {
 
       await reconciliationService.reconcile(saleId);
 
-      expect(orderQueueProducer.enqueuePersistOrder).not.toHaveBeenCalled();
-      expect(orderQueueProducer.listDeadLettered).not.toHaveBeenCalled();
+      expect(orderOutbox.append).not.toHaveBeenCalled();
+      expect(orderOutbox.listDeadLettered).not.toHaveBeenCalled();
     });
 
-    it('leaves dead-lettered jobs alone for manual intervention instead of re-enqueueing them', async () => {
+    it('leaves dead-lettered Orders alone for manual intervention instead of re-appending them', async () => {
       const saleId = randomUUID();
       vi.mocked(prisma.sale.findUniqueOrThrow).mockResolvedValue({
         totalStock: 10,
@@ -288,15 +288,13 @@ describe('ReconciliationService', () => {
         'user-1',
         'user-2',
       ]);
-      vi.mocked(orderQueueProducer.listDeadLettered).mockResolvedValue([
-        'user-1',
-      ]);
+      vi.mocked(orderOutbox.listDeadLettered).mockResolvedValue(['user-1']);
 
       await reconciliationService.reconcile(saleId);
 
-      expect(orderQueueProducer.listDeadLettered).toHaveBeenCalledWith(saleId);
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
-      expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+      expect(orderOutbox.listDeadLettered).toHaveBeenCalledWith(saleId);
+      expect(orderOutbox.append).toHaveBeenCalledTimes(1);
+      expect(orderOutbox.append).toHaveBeenCalledWith(
         saleId,
         'user-2',
         expect.any(Date),

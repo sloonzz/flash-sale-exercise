@@ -4,7 +4,7 @@ import {
   PERSIST_ORDER_BACKOFF_JITTER,
   PERSIST_ORDER_BACKOFF_MAX_MS,
   persistOrderBackoffDelay,
-} from './persist-order-job.ts';
+} from './persist-order-retry.ts';
 
 const within = (value: number, target: number) => {
   const tolerance = target * PERSIST_ORDER_BACKOFF_JITTER;

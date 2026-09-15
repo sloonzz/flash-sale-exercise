@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.ts';
-import { persistOrder } from './persist-order.processor.ts';
+import { persistOrders } from './persist-orders.ts';
 
-describe('persistOrder (integration)', () => {
+describe('persistOrders (integration)', () => {
   const prisma = new PrismaService();
   const saleIds: string[] = [];
 
@@ -33,33 +33,42 @@ describe('persistOrder (integration)', () => {
     await prisma.onModuleDestroy();
   });
 
-  it('creates a durable Order row for a persisted reservation', async () => {
+  it('creates a durable Order row for every entry in the batch', async () => {
     const saleId = await createSale();
     const timestamp = new Date('2026-01-01T00:00:00.000Z');
 
-    await persistOrder(prisma, {
-      saleId,
-      userId: 'user-1',
-      timestamp: timestamp.toISOString(),
-    });
+    await persistOrders(prisma, [
+      {
+        id: '1-0',
+        saleId,
+        userId: 'user-1',
+        timestamp: timestamp.toISOString(),
+      },
+      {
+        id: '2-0',
+        saleId,
+        userId: 'user-2',
+        timestamp: timestamp.toISOString(),
+      },
+    ]);
 
     const order = await prisma.order.findUniqueOrThrow({
       where: { saleId_userId: { saleId, userId: 'user-1' } },
     });
     expect(order.createdAt).toEqual(timestamp);
+    await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(2);
   });
 
-  it('is idempotent when the same job is processed twice', async () => {
+  it('is idempotent when the same batch is persisted twice, and lands the new rows of a partially-persisted batch', async () => {
     const saleId = await createSale();
-    const data = {
-      saleId,
-      userId: 'user-1',
-      timestamp: new Date().toISOString(),
-    };
+    const timestamp = new Date().toISOString();
+    const one = { id: '1-0', saleId, userId: 'user-1', timestamp };
+    const two = { id: '2-0', saleId, userId: 'user-2', timestamp };
 
-    await persistOrder(prisma, data);
-    await expect(persistOrder(prisma, data)).resolves.toBeUndefined();
+    await persistOrders(prisma, [one]);
+    await expect(persistOrders(prisma, [one, two])).resolves.toBeUndefined();
+    await expect(persistOrders(prisma, [one, two])).resolves.toBeUndefined();
 
-    await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(1);
+    await expect(prisma.order.count({ where: { saleId } })).resolves.toBe(2);
   });
 });

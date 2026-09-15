@@ -1,11 +1,9 @@
-import { getQueueToken } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  PERSIST_ORDER_QUEUE,
-  PersistOrderJobData,
-} from '../../src/order/persist-order-job.ts';
+  ORDER_OUTBOX_DEFAULT_KEY,
+  ORDER_OUTBOX_GROUP,
+} from '../../src/order/order-outbox.ts';
 import {
   reservedUsersKey,
   stockKey,
@@ -28,7 +26,7 @@ import {
   waitUntil,
 } from './fault-test-support.ts';
 
-describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
+describe('Drainer restart with an outbox backlog (fault tolerance)', () => {
   let ctx: FaultTestContext;
 
   beforeAll(async () => {
@@ -41,7 +39,7 @@ describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
 
   dumpAppLogsOnFailure(() => ctx);
 
-  it('drains persist-order jobs left behind by a previous process exactly once, and startup reconciliation does not clobber the live stock they have not yet reached', async () => {
+  it('drains outbox entries left behind by a previous process exactly once, and startup reconciliation does not clobber the live stock they have not yet reached', async () => {
     const saleId = await createSale(ctx.app, { totalStock: 5 });
     const userIds = ['user-1', 'user-2', 'user-3'];
 
@@ -50,7 +48,7 @@ describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
         // Take Postgres down before any purchases
         await stopContainer(ctx.containerId);
 
-        // Reserve three units while Postgres is down so the persist jobs back up
+        // Reserve three units while Postgres is down so the outbox backs up
         for (const userId of userIds) {
           await request(ctx.app.getHttpServer())
             .post('/purchase')
@@ -60,21 +58,26 @@ describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
         }
         await expect(ctx.redis.get(stockKey(saleId))).resolves.toBe('2');
 
-        // Wait until every job has failed once and is sitting in backoff
-        const queue = ctx.app.get<Queue<PersistOrderJobData>>(
-          getQueueToken(PERSIST_ORDER_QUEUE),
-        );
+        // Wait until every entry has been read and failed once: it sits in
+        // the group's pending list while the drainer is in backoff
         await waitUntil(
           async () => {
-            const delayed = await queue.getDelayed();
-            const retrying = delayed.filter(
-              (job) => job.data.saleId === saleId && job.attemptsMade >= 1,
+            const [pending] = (await ctx.redis.xpending(
+              ORDER_OUTBOX_DEFAULT_KEY,
+              ORDER_OUTBOX_GROUP,
+            )) as [number];
+            return (
+              pending === userIds.length &&
+              userIds.every((userId) =>
+                ctx.logger.hasLogged(
+                  `Failed to persist Order for sale ${saleId}, user ${userId}`,
+                ),
+              )
             );
-            return retrying.length === userIds.length;
           },
           {
             timeoutMs: 15_000,
-            description: `all ${userIds.length} persist-order jobs for sale ${saleId} to fail once and enter backoff`,
+            description: `all ${userIds.length} outbox entries for sale ${saleId} to fail once and enter backoff`,
           },
         );
 
@@ -91,7 +94,7 @@ describe('BullMQ worker restart with a job backlog (fault tolerance)', () => {
         await waitForHealthy(ctx.containerId, 30_000);
       }
 
-      // The new process drains the inherited jobs
+      // The new process drains the inherited entries
       for (const userId of userIds) {
         await waitForOrder(ctx.prisma, saleId, userId, 30_000);
       }

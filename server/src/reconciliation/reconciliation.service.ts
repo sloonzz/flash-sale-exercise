@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { RECONCILE_SALES_WINDOW_MS } from '../config/env.ts';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { OrderOutboxService } from '../order/order-outbox.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 
 /**
- * Service for handling failures in-between the services: DB, backend, Queue
+ * Service for handling failures in-between the services: DB, backend, outbox
  * This service reconciles the data between the three
  */
 @Injectable()
@@ -15,7 +15,7 @@ export class ReconciliationService implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reservationService: ReservationService,
-    private readonly orderQueueProducer: OrderQueueProducer,
+    private readonly orderOutbox: OrderOutboxService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -81,11 +81,11 @@ export class ReconciliationService implements OnApplicationBootstrap {
     }
 
     const deadLettered = new Set(
-      await this.orderQueueProducer.listDeadLettered(saleId),
+      await this.orderOutbox.listDeadLettered(saleId),
     );
     if (deadLettered.size > 0) {
       this.logger.error(
-        `${deadLettered.size} dead-lettered persist-order job(s) for sale ${saleId} left in 'failed' — needs manual intervention`,
+        `${deadLettered.size} dead-lettered Order(s) for sale ${saleId} left in the dead-letter stream — needs manual intervention`,
       );
     }
 
@@ -97,11 +97,11 @@ export class ReconciliationService implements OnApplicationBootstrap {
     const timestamp = new Date();
     await Promise.all(
       toEnqueue.map((userId) =>
-        this.orderQueueProducer.enqueuePersistOrder(saleId, userId, timestamp),
+        this.orderOutbox.append(saleId, userId, timestamp),
       ),
     );
     this.logger.warn(
-      `Re-enqueued ${toEnqueue.length} persist-order job(s) for sale ${saleId} whose Reservations had no Order`,
+      `Re-appended ${toEnqueue.length} outbox entr${toEnqueue.length === 1 ? 'y' : 'ies'} for sale ${saleId} whose Reservations had no Order`,
     );
   }
 }

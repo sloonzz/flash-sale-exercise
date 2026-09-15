@@ -1,5 +1,3 @@
-import { getQueueToken } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ORDER_OUTBOX_CLAIM_IDLE_MS } from '../../src/config/env.ts';
@@ -11,10 +9,6 @@ import {
   ORDER_OUTBOX_DEFAULT_KEY,
   ORDER_OUTBOX_GROUP,
 } from '../../src/order/order-outbox.ts';
-import {
-  PERSIST_ORDER_QUEUE,
-  PersistOrderJobData,
-} from '../../src/order/persist-order-job.ts';
 import {
   reservedUsersKey,
   stockKey,
@@ -36,7 +30,7 @@ vi.hoisted(() => {
   process.env.ORDER_OUTBOX_CLAIM_IDLE_MS = '1000';
 });
 
-describe('Order outbox: enqueue failure and drainer crash (fault tolerance)', () => {
+describe('Order outbox: write failure and drainer crash (fault tolerance)', () => {
   let ctx: FaultTestContext;
 
   beforeAll(async () => {
@@ -57,17 +51,14 @@ describe('Order outbox: enqueue failure and drainer crash (fault tolerance)', ()
     return count;
   }
 
-  it('keeps retrying a Reservation whose persist-order job fails to enqueue until it lands — no app restart', async () => {
+  it('keeps retrying a Reservation whose Order write fails until it lands — no app restart', async () => {
     const saleId = await createSale(ctx.app, { totalStock: 3 });
-    const queue = ctx.app.get<Queue<PersistOrderJobData>>(
-      getQueueToken(PERSIST_ORDER_QUEUE),
-    );
 
     try {
-      // Make every queue.add() blow up until told otherwise
-      const addSpy = vi
-        .spyOn(queue, 'add')
-        .mockRejectedValue(new Error('simulated enqueue failure'));
+      // Make every Order write blow up until told otherwise
+      const writeSpy = vi
+        .spyOn(ctx.prisma.order, 'createMany')
+        .mockRejectedValue(new Error('simulated write failure'));
 
       // The purchase still succeeds from the buyer's point of view
       await request(ctx.app.getHttpServer())
@@ -79,13 +70,13 @@ describe('Order outbox: enqueue failure and drainer crash (fault tolerance)', ()
       // The drainer keeps picking the outbox entry back up and failing
       await waitUntil(
         async () =>
-          addSpy.mock.settledResults.filter((r) => r.type === 'rejected')
+          writeSpy.mock.settledResults.filter((r) => r.type === 'rejected')
             .length >= 3,
-        { timeoutMs: 10_000, description: 'three failed enqueue attempts' },
+        { timeoutMs: 10_000, description: 'three failed write attempts' },
       );
       expect(
         ctx.logger.hasLogged(
-          `Failed to enqueue persist-order job for sale ${saleId}, user user-1`,
+          `Failed to persist Order for sale ${saleId}, user user-1`,
         ),
       ).toBe(true);
 
@@ -105,8 +96,8 @@ describe('Order outbox: enqueue failure and drainer crash (fault tolerance)', ()
       ).resolves.toBe(0);
       await expect(outboxPending()).resolves.toBe(1);
 
-      // Let the queue work again: the next pass succeeds and the Order lands
-      addSpy.mockRestore();
+      // Let the write work again: the next pass succeeds and the Order lands
+      writeSpy.mockRestore();
       await waitForOrder(ctx.prisma, saleId, 'user-1', 10_000);
 
       // Exactly one Order, stock unchanged, outbox fully drained
@@ -142,7 +133,7 @@ describe('Order outbox: enqueue failure and drainer crash (fault tolerance)', ()
         .expect(201)
         .then((res) => expect(res.body.result).toBe('success'));
 
-      // Another worker reads the entry and then dies before enqueueing it
+      // Another worker reads the entry and then dies before writing it
       await ctx.redis.xreadgroup(
         'GROUP',
         ORDER_OUTBOX_GROUP,
