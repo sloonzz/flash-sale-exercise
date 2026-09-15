@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   ORDER_OUTBOX_DEFAULT_KEY,
   ORDER_OUTBOX_GROUP,
-} from '../../src/order/order-outbox.ts';
+} from '../../src/order/outbox/order-outbox.ts';
 import {
   reservedUsersKey,
   stockKey,

@@ -17,7 +17,7 @@ import {
   type SecuredResponse,
 } from 'common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts';
-import { SaleService } from './sale.service.ts';
+import { SaleService } from '../sale/sale.service.ts';
 
 @Controller('purchase')
 export class PurchaseController {

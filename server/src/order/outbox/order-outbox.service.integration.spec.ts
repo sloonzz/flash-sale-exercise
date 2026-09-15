@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { REDIS_URL } from '../config/env.ts';
+import { REDIS_URL } from '../../config/env.ts';
 import { OrderOutboxService } from './order-outbox.service.ts';
 import {
   orderOutboxDeadLetterKey,

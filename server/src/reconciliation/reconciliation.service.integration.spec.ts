@@ -10,7 +10,7 @@ import {
   vi,
 } from 'vitest';
 import { RECONCILE_SALES_WINDOW_MS, REDIS_URL } from '../config/env.ts';
-import { OrderOutboxService } from '../order/order-outbox.service.ts';
+import { OrderOutboxService } from '../order/outbox/order-outbox.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';

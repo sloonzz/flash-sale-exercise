@@ -1,5 +1,5 @@
-import { PrismaService } from '../prisma/prisma.service.ts';
-import { OrderOutboxEntry } from './order-outbox.ts';
+import { PrismaService } from '../../../prisma/prisma.service.ts';
+import { OrderOutboxEntry } from '../order-outbox.ts';
 
 // One INSERT for the whole batch. Skip duplicates, not fail: an entry retried
 // after a crash between the Postgres write and the outbox ack must land

@@ -14,8 +14,8 @@ import {
   ORDER_OUTBOX_CLAIM_IDLE_MS,
   PERSIST_ORDER_ATTEMPTS,
   REDIS_URL,
-} from '../config/env.ts';
-import { PrismaService } from '../prisma/prisma.service.ts';
+} from '../../config/env.ts';
+import { PrismaService } from '../../prisma/prisma.service.ts';
 import { OrderOutboxDrainer } from './order-outbox.drainer.ts';
 import { OrderOutboxService } from './order-outbox.service.ts';
 import {

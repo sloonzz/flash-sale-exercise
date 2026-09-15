@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECONCILE_SALES_WINDOW_MS } from '../config/env.ts';
-import { OrderOutboxService } from '../order/order-outbox.service.ts';
+import { OrderOutboxService } from '../order/outbox/order-outbox.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
 import { ReconciliationService } from './reconciliation.service.ts';

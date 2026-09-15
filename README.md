@@ -140,22 +140,23 @@ flowchart TB
 
   - _Trade-off:_ one extra confirmation step in the UX (normally under a second), a Postgres read per poll for users who hold a Reservation, and a check endpoint that degrades with Postgres while the purchase path does not.
 
-- **The page polls instead of using WebSockets.** A sale-status check is two cheap Redis reads, a confirmation check is one Postgres lookup, and no server has to remember who is connected, so any server can answer any request.
+- **The page polls instead of using WebSockets.** A sale-status check is served from each worker's memory and refreshed from Redis once a second, a confirmation check is one Postgres lookup, and no server has to remember who is connected, so any server can answer any request.
 
-  - _Trade-off:_ sale state in the frontend can be up to 4 seconds stale and a confirmation up to 1 second. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
+  - _Trade-off:_ sale state in the frontend can be up to 5 seconds stale (4s polling plus a 1s per-worker response cache) and a confirmation up to 1 second. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
 
-- **Servers hold no state.** Rate limits, stock, who has bought, and the outbox all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
+- **Servers hold no authoritative state.** Rate limits, stock, who has bought, and the outbox all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
 
 ### Known limitations (by design, for the time budget)
 
 - No cloud deployment.
 - Single API process using Node `cluster` workers instead of a load balancer in front of independent API replicas. The servers are stateless, so swapping to replicas is a deployment change, not a code change.
+- One monolithic API rather than microservices, so the parts can't be scaled independently: the purchase path, the status endpoint, the admin endpoints and the outbox drainer all scale together, as more cluster workers or more API replicas. Splitting out the drainer (the only component whose load is Postgres-bound rather than request-bound) would be the first cut if the workloads ever diverge.
 - No real auth: admin is a shared secret, users are a plain id.
 - No on-demand reconciliation endpoint in case of failure. Reconciliation runs only on startup (sales from the last `RECONCILE_SALES_WINDOW_MS`) and on sale creation (that sale). Its "reserved user with no Order → re-append to the outbox" step is kept as a safety net, but the outbox is what makes that case not happen in the first place.
 - No chaos test that kills a worker process mid-request — the cluster respawns workers, and the outbox fault test covers the equivalent: an entry read by a drainer that then dies is reclaimed by a live one.
 
-## Expected performance
+## Performance
 
-`yarn test:performance` runs [autocannon](https://github.com/mcollina/autocannon) against a real clustered server with real Redis and Postgres (spike: 1000 connections × 15s; stress: 100 × 60s; tune via `SPIKE_*` / `STRESS_*` / `CLUSTER_WORKERS` in `server/test/support/config.ts`), then waits for the async persist pipeline to drain — the wait is sized from the backlog (`SETTLE_GRACE_MS` + backlog / `SETTLE_ORDERS_PER_SECOND`, since a run where every request succeeds leaves far more orders than the run itself took to create) — and checks the invariants directly in the stores: an understocked sale ends with stock exactly 0 and exactly that many Orders, an overstocked sale has Orders == stock decremented == distinct users, and a same-user run yields exactly 1 Order — with zero errors, timeouts or non-2xx responses.
+The request path never waits on Postgres. Reserving an item is one atomic Redis script (check the user, decrement stock, record the user, append to the outbox), so the hot path has no locks, no transactions and no row contention; orders reach Postgres afterwards in batches from the outbox drainer, off the request path. Servers hold no authoritative state, so throughput scales with API workers or replicas until Redis saturates.
 
-On a 20-core WSL2 host with 4 workers this sustains ~27–36k `POST /purchase` req/s (p99 < 60 ms) on the sold-out / duplicate fast path, ~6–13k req/s when every request succeeds and is persisted, and ~48k req/s on `GET /sale/status`; the reserve script alone does ~75k ops/s, so the next bottleneck is API replicas, not Redis. Absolute numbers vary by hardware; the invariants are what the suite asserts.
+Each worker memoises what the rest of the path reads: the current Sale, a sold-out verdict, and the `/sale/status` response, all refreshed at most once per `MEMORY_CACHE_TTL_MS`. A live purchase is therefore two Redis round trips (rate limiter + reserve) and a sold-out one — the bulk of a flash sale's traffic — is just the rate limiter, while `/sale/status` costs Redis one read per worker per TTL instead of one per request. `yarn test:performance` runs autocannon spike and stress loads against the real clustered stack and asserts the stock and Order invariants afterwards; absolute numbers vary by hardware.

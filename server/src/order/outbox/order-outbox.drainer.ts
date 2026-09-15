@@ -12,9 +12,9 @@ import {
   ORDER_OUTBOX_CLAIM_IDLE_MS,
   PERSIST_ORDER_ATTEMPTS,
   REDIS_COMMAND_TIMEOUT_MS,
-} from '../config/env.ts';
-import { PrismaService } from '../prisma/prisma.service.ts';
-import { REDIS_CLIENT } from '../redis/redis.constants.ts';
+} from '../../config/env.ts';
+import { PrismaService } from '../../prisma/prisma.service.ts';
+import { REDIS_CLIENT } from '../../redis/redis.constants.ts';
 import {
   deadLetterFields,
   ORDER_OUTBOX_GROUP,
@@ -23,8 +23,8 @@ import {
   orderOutboxDeadLetterKey,
   parseOrderOutboxEntry,
 } from './order-outbox.ts';
-import { persistOrderBackoffDelay } from './persist-order-retry.ts';
-import { persistOrders } from './persist-orders.ts';
+import { persistOrderBackoffDelay } from './helpers/persist-order-retry.ts';
+import { persistOrders } from './helpers/persist-orders.ts';
 import { PRUNE_OUTBOX_CONSUMERS_SCRIPT } from './prune-outbox-consumers-script.ts';
 
 export const ORDER_OUTBOX_BATCH_SIZE = 100;

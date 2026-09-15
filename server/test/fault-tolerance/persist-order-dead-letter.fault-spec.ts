@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { OrderOutboxService } from '../../src/order/order-outbox.service.ts';
+import { OrderOutboxService } from '../../src/order/outbox/order-outbox.service.ts';
 import {
   ORDER_OUTBOX_DEFAULT_KEY,
   orderOutboxDeadLetterKey,
-} from '../../src/order/order-outbox.ts';
+} from '../../src/order/outbox/order-outbox.ts';
 import { ReconciliationService } from '../../src/reconciliation/reconciliation.service.ts';
 import { stockKey } from '../../src/reservation/reservation-keys.ts';
 import { ReservationService } from '../../src/reservation/reservation.service.ts';

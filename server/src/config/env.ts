@@ -6,6 +6,12 @@ export const DATABASE_URL =
 
 export const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
+// Where the rate limiter keeps its counters. Defaults to the main Redis so a
+// single instance is enough; point it elsewhere in prod once Redis is the
+// bottleneck, since sold-out traffic is nothing but throttle commands and
+// the reserve script shouldn't compete with them.
+export const THROTTLE_REDIS_URL = process.env.THROTTLE_REDIS_URL ?? REDIS_URL;
+
 export const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 20);
 
 export const THROTTLE_DISABLED = process.env.DISABLE_THROTTLE === 'true';
@@ -42,4 +48,12 @@ export const RECONCILE_SALES_WINDOW_MS = Number(
 // duplicates).
 export const ORDER_OUTBOX_CLAIM_IDLE_MS = Number(
   process.env.ORDER_OUTBOX_CLAIM_IDLE_MS ?? 30_000,
+);
+
+// How long a worker serves the current Sale and a sold-out verdict from memory
+// before re-reading Redis. Bounds how long a newly created Sale takes to be
+// seen by every worker, and how long an out-of-band stock rewrite goes
+// unnoticed; the per-request Redis reads it replaces are the cost.
+export const MEMORY_CACHE_TTL_MS = Number(
+  process.env.MEMORY_CACHE_TTL_MS ?? 1_000,
 );

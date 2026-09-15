@@ -4,11 +4,11 @@ import { ORDER_OUTBOX_CLAIM_IDLE_MS } from '../../src/config/env.ts';
 import {
   ORDER_OUTBOX_BLOCK_MS,
   OrderOutboxDrainer,
-} from '../../src/order/order-outbox.drainer.ts';
+} from '../../src/order/outbox/order-outbox.drainer.ts';
 import {
   ORDER_OUTBOX_DEFAULT_KEY,
   ORDER_OUTBOX_GROUP,
-} from '../../src/order/order-outbox.ts';
+} from '../../src/order/outbox/order-outbox.ts';
 import {
   reservedUsersKey,
   stockKey,

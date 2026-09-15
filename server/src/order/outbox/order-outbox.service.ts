@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from '../redis/redis.constants.ts';
+import { REDIS_CLIENT } from '../../redis/redis.constants.ts';
 import {
   DeadLetteredOrder,
   ORDER_OUTBOX_KEY,

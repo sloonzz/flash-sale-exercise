@@ -1,4 +1,6 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable } from '@nestjs/common';
+import type { Cache } from 'cache-manager';
 import type {
   CreateSaleBody,
   PurchaseResult,
@@ -17,6 +19,7 @@ import {
   currentSaleKey,
   serializeSale,
   deserializeSale,
+  soldOutKey,
 } from './sale-cache.ts';
 
 @Injectable()
@@ -26,18 +29,28 @@ export class SaleService {
     private readonly reservationService: ReservationService,
     private readonly reconciliationService: ReconciliationService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
+  // Memory (per worker, TTL) → Redis (shared, no TTL) → Postgres (source).
   private async getCurrentSale(): Promise<CachedSale | null> {
+    const memo = await this.cache.get<CachedSale | null>(currentSaleKey());
+    if (memo !== undefined) {
+      return memo;
+    }
+
     const raw = await this.redis.get(currentSaleKey());
     if (raw !== null) {
-      return deserializeSale(raw);
+      const sale = deserializeSale(raw);
+      await this.cache.set(currentSaleKey(), sale);
+      return sale;
     }
 
     const sale = await this.prisma.sale.findFirst({
       orderBy: { createdAt: 'desc' },
     });
     if (!sale) {
+      await this.cache.set(currentSaleKey(), null);
       return null;
     }
 
@@ -46,6 +59,7 @@ export class SaleService {
   }
 
   private async cacheSale(sale: CachedSale): Promise<void> {
+    await this.cache.set(currentSaleKey(), sale);
     await this.redis.set(currentSaleKey(), serializeSale(sale));
   }
 
@@ -78,8 +92,16 @@ export class SaleService {
         return 'not_active';
       case 'after':
         return 'ended';
-      case 'within':
-        return this.reservationService.reserve(sale.id, userId);
+      case 'within': {
+        if (await this.cache.get(soldOutKey(sale.id))) {
+          return 'sold_out';
+        }
+        const result = await this.reservationService.reserve(sale.id, userId);
+        if (result === 'sold_out') {
+          await this.cache.set(soldOutKey(sale.id), true);
+        }
+        return result;
+      }
     }
   }
 
@@ -102,6 +124,9 @@ export class SaleService {
   async createSale(input: CreateSaleBody): Promise<SaleModel> {
     const sale = await this.prisma.sale.create({ data: input });
 
+    // Everything this worker memoised (cached /sale/status response, sold-out
+    // verdict) is about the previous sale; other workers catch up within a TTL.
+    await this.cache.clear();
     await this.cacheSale(sale);
     await this.reconciliationService.reconcile(sale.id);
 
@@ -115,8 +140,15 @@ export class SaleService {
       case 'after':
         return 'ended';
       case 'within': {
+        if (await this.cache.get(soldOutKey(sale.id))) {
+          return 'soldout';
+        }
         const stock = await this.reservationService.getStock(sale.id);
-        return stock !== null && stock <= 0 ? 'soldout' : 'active';
+        if (stock !== null && stock <= 0) {
+          await this.cache.set(soldOutKey(sale.id), true);
+          return 'soldout';
+        }
+        return 'active';
       }
     }
   }

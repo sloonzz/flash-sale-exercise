@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ORDER_OUTBOX_CLAIM_IDLE_MS,
   PERSIST_ORDER_ATTEMPTS,
-} from '../config/env.ts';
-import { PrismaService } from '../prisma/prisma.service.ts';
+} from '../../config/env.ts';
+import { PrismaService } from '../../prisma/prisma.service.ts';
 import {
   ORDER_OUTBOX_BATCH_SIZE,
   ORDER_OUTBOX_BLOCK_MS,
@@ -19,7 +19,7 @@ import {
 import {
   PERSIST_ORDER_BACKOFF_BASE_MS,
   PERSIST_ORDER_BACKOFF_JITTER,
-} from './persist-order-retry.ts';
+} from './helpers/persist-order-retry.ts';
 import { PRUNE_OUTBOX_CONSUMERS_SCRIPT } from './prune-outbox-consumers-script.ts';
 
 const within = (value: number, target: number) => {

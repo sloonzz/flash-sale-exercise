@@ -5,7 +5,7 @@ import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, expect } from 'vitest';
 import { DATABASE_URL, REDIS_URL } from '../../src/config/env.ts';
 import { PrismaClient } from '../../src/generated/prisma/client.ts';
-import { ORDER_OUTBOX_DEFAULT_KEY } from '../../src/order/order-outbox.ts';
+import { ORDER_OUTBOX_DEFAULT_KEY } from '../../src/order/outbox/order-outbox.ts';
 import {
   reservedUsersKey,
   stockKey,

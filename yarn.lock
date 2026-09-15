@@ -106,6 +106,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@cacheable/utils@npm:^2.5.0":
+  version: 2.5.0
+  resolution: "@cacheable/utils@npm:2.5.0"
+  dependencies:
+    hashery: "npm:^1.5.1"
+    keyv: "npm:^5.6.0"
+  checksum: 10c0/99e901accd71eeb0bce91484d6c66d7ef2c731b541561eb5dc9ea7fed78bdc0b65e5dd2a80edde50191143bcfc5f238fc4742475b32e82d43b43eea224038e35
+  languageName: node
+  linkType: hard
+
 "@colors/colors@npm:1.5.0":
   version: 1.5.0
   resolution: "@colors/colors@npm:1.5.0"
@@ -556,6 +566,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@keyv/serialize@npm:^1.1.1":
+  version: 1.1.1
+  resolution: "@keyv/serialize@npm:1.1.1"
+  checksum: 10c0/b0008cae4a54400c3abf587b8cc2474c6f528ee58969ce6cf9cb07a04006f80c73c85971d6be6544408318a2bc40108236a19a82aea0a6de95aae49533317374
+  languageName: node
+  linkType: hard
+
 "@lukeed/csprng@npm:^1.0.0":
   version: 1.1.0
   resolution: "@lukeed/csprng@npm:1.1.0"
@@ -607,6 +624,19 @@ __metadata:
     reflect-metadata:
       optional: false
   checksum: 10c0/a002de61fd74bb909d41f94abeb96904d7cfe800e4f185218e1f2b2a4c08bbf6f283f50b4c517e646cf5c1200b438a5015a19d20e1f98bf76649ed15da11a2b6
+  languageName: node
+  linkType: hard
+
+"@nestjs/cache-manager@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "@nestjs/cache-manager@npm:12.0.0"
+  peerDependencies:
+    "@nestjs/common": ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+    "@nestjs/core": ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+    cache-manager: ">=6"
+    keyv: ">=5"
+    rxjs: ^7.8.1
+  checksum: 10c0/b818de52d4398cdd3bb1fa41c9358c3546d497c0b7f242225e50bc149898d7d10e61635c36009763d3668ac7c44ef7870b83ca649b2d4f35a6201074d3779276
   languageName: node
   linkType: hard
 
@@ -2759,6 +2789,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"cache-manager@npm:^7.2.9":
+  version: 7.2.9
+  resolution: "cache-manager@npm:7.2.9"
+  dependencies:
+    "@cacheable/utils": "npm:^2.5.0"
+    keyv: "npm:^5.6.0"
+  checksum: 10c0/b4146edb102c7f49f9eb804c48ffb370405594e36f3e391093c35f5589b25fcd51cb33291589e453882745b60d669f7be21411c86864746d74ef9287ef238af8
+  languageName: node
+  linkType: hard
+
 "call-bind-apply-helpers@npm:^1.0.1, call-bind-apply-helpers@npm:^1.0.2":
   version: 1.0.2
   resolution: "call-bind-apply-helpers@npm:1.0.2"
@@ -3938,6 +3978,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"hashery@npm:^1.5.1":
+  version: 1.5.1
+  resolution: "hashery@npm:1.5.1"
+  dependencies:
+    hookified: "npm:^1.15.0"
+  checksum: 10c0/ab4225b655a7b0d05df99b1a59d5b3a51fe433f82422ca25e6f3f4c4ddd30adb49ebd38e0047ef9bded93319c1e9fc857e16aa382e554929c871cb77d39fc463
+  languageName: node
+  linkType: hard
+
 "hasown@npm:^2.0.2, hasown@npm:^2.0.4":
   version: 2.0.4
   resolution: "hasown@npm:2.0.4"
@@ -3962,6 +4011,13 @@ __metadata:
   version: 3.0.0
   resolution: "hdr-histogram-percentiles-obj@npm:3.0.0"
   checksum: 10c0/7b1c90b01bdee22da3b6e1f95fdbe186ceb6875a53340c3615f6e9899ee5d4bc6624a0fe67a15b0e59ccddca8d3b835911214285a77fa22a04cf64c9e3d64d39
+  languageName: node
+  linkType: hard
+
+"hookified@npm:^1.15.0":
+  version: 1.15.1
+  resolution: "hookified@npm:1.15.1"
+  checksum: 10c0/6b691374fa97ae57169fb29f90e723499fda5e85494654fbe55c4768b3ccbf3e14c0adc8d0f365f32c503b60d7c06f907781f5966c03d41c423575eb5e16860c
   languageName: node
   linkType: hard
 
@@ -4229,6 +4285,15 @@ __metadata:
   version: 3.3.1
   resolution: "jsonc-parser@npm:3.3.1"
   checksum: 10c0/269c3ae0a0e4f907a914bf334306c384aabb9929bd8c99f909275ebd5c2d3bc70b9bcd119ad794f339dec9f24b6a4ee9cd5a8ab2e6435e730ad4075388fc2ab6
+  languageName: node
+  linkType: hard
+
+"keyv@npm:^5.6.0":
+  version: 5.6.0
+  resolution: "keyv@npm:5.6.0"
+  dependencies:
+    "@keyv/serialize": "npm:^1.1.1"
+  checksum: 10c0/c3ea795b6e03593ca57c8f70928a69bad14c13389a7fb75649a115ff55615244b04d8902798d841c17f0bb4a8a8866c97133b543b93f151b440170bba09176db
   languageName: node
   linkType: hard
 
@@ -5617,6 +5682,7 @@ __metadata:
   resolution: "server@workspace:server"
   dependencies:
     "@nest-lab/throttler-storage-redis": "npm:^1.2.0"
+    "@nestjs/cache-manager": "npm:^12.0.0"
     "@nestjs/cli": "npm:^12.0.0"
     "@nestjs/common": "npm:^12.0.1"
     "@nestjs/core": "npm:^12.0.1"
@@ -5636,9 +5702,11 @@ __metadata:
     "@types/supertest": "npm:^7.0.0"
     "@vitest/coverage-v8": "npm:^4.1.2"
     autocannon: "npm:^8.0.0"
+    cache-manager: "npm:^7.2.9"
     common: "workspace:^"
     dotenv: "npm:^17.4.2"
     ioredis: "npm:^6.0.0"
+    keyv: "npm:^5.6.0"
     oxlint: "npm:^1.58.0"
     pg: "npm:^8.23.0"
     prettier: "npm:^3.4.2"
