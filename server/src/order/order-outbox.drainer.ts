@@ -55,31 +55,8 @@ export interface DrainResult {
 }
 
 /**
- * Writes order-outbox entries to Postgres.
- *
- * Every cluster worker runs one, all in the same consumer group, so entries
- * are spread across workers and any number of them can run concurrently
- * without coordination. Each pass writes what it read as one batch; an entry
- * is acknowledged (and deleted from the stream) only after its Order row is
- * in Postgres. Until then it sits in the group's pending list, owned by this
- * consumer, and is retried:
- *   - by this drainer on its next pass, if the write failed or a blocking
- *     read timed out after Redis had already delivered the entry (the reply
- *     arrives late and nobody is listening for it);
- *   - by whichever drainer is alive, once it has been idle for
- *     ORDER_OUTBOX_CLAIM_IDLE_MS, if this process died holding it.
- * The Order insert skips duplicates, so at-least-once here is safe.
- *
- * A failed batch is retried entry by entry in the same pass, so one entry
- * that can never land (its sale was deleted, say) does not hold the rest of
- * the batch hostage. What still fails stays pending; the drainer backs off
- * (capped exponential, see persist-order-retry.ts) before its next pass. The
- * pending list's delivery counter is the per-entry attempt count: an entry
- * that has been delivered PERSIST_ORDER_ATTEMPTS times and still fails is
- * moved to the dead-letter stream, atomically with its ack.
- *
- * Uses its own Redis connection: XREADGROUP ... BLOCK holds the connection,
- * and the shared client must stay free for the purchase hot path.
+ * Persists orders to Postgres in batches using the order outbox in Redis.
+ * This drainer also handles retries with backoff and dead-letter queueing
  */
 @Injectable()
 export class OrderOutboxDrainer
@@ -100,6 +77,8 @@ export class OrderOutboxDrainer
     @Inject(ORDER_OUTBOX_KEY) private readonly outboxKey: string,
     private readonly prisma: PrismaService,
   ) {
+    // Own connection: XREADGROUP ... BLOCK holds it, and the shared client
+    // must stay free for the purchase hot path.
     this.client = redis.duplicate();
     this.client.on('error', (error) =>
       this.logger.error('Order outbox Redis connection error', error),
@@ -175,11 +154,9 @@ export class OrderOutboxDrainer
   }
 
   /**
-   * Bounded so the entries this drainer still holds never sit idle long
-   * enough for another drainer to take it for dead and reclaim them (which
-   * would count as extra attempts against them). Idle is measured from the
-   * read at the start of the pass, so the pass itself — a hung write, say —
-   * eats into the wait.
+   * Exponential backoff after a failed pass, bounded by the claim idle time
+   * so the entries we still hold are never claimed by another consumer while
+   * we wait.
    */
   private backoffMs(passStartedAt: number): number {
     const elapsed = Date.now() - passStartedAt;

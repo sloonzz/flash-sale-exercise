@@ -1,15 +1,11 @@
 /**
  * The order outbox: a Redis stream that the reserve script appends to in the
- * same atomic Lua call that decrements stock and marks the user reserved.
- *
- * It is the transactional-outbox pattern with Redis as the single store: a
- * Reservation and the record of "an Order must be persisted for it" are one
- * write, so there is no window in which a process crash can leave a
- * Reservation with no pending Order. The OrderOutboxDrainer writes entries to
- * Postgres and only acknowledges them once the Order rows are there.
- *
- * Entries that keep failing are moved to a dead-letter stream next to the
- * outbox (see OrderOutboxDrainer); OrderOutboxService lists and replays them.
+ * same atomic Lua call that decrements stock and marks the user reserved, so
+ * no crash can leave a Reservation with no pending Order (transactional outbox
+ * with Redis as the single store). The OrderOutboxDrainer writes entries to
+ * Postgres and only acknowledges them once the Order rows are there. Entries
+ * that keep failing are moved to a dead-letter stream next to the outbox,
+ * which OrderOutboxService lists and replays from.
  */
 export const ORDER_OUTBOX_KEY = 'ORDER_OUTBOX_KEY';
 export const ORDER_OUTBOX_DEFAULT_KEY = 'order-outbox';

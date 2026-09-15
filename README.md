@@ -116,8 +116,6 @@ flowchart TB
     HTTP -.->|"read order → confirmed"| PG
 ```
 
-The hot path (`POST /purchase` → reserve) touches only Redis, and it is a single Redis call: the same Lua script that decrements stock and marks the user also appends to the order outbox stream, so a Reservation can never exist without a record that its Order still needs persisting. The order write is async and idempotent (insert that skips duplicates on `UNIQUE (sale_id, user_id)`), so retries and re-deliveries are harmless. The confirmation read (`GET /purchase/:saleId`) goes the other way round: it answers `confirmed` from the Postgres Order row, and falls back to Redis only to report `reserved` while that row is still in flight.
-
 ### Key decisions
 
 - **Redis decides who gets an item, Postgres keeps the record.** Doing this in Postgres alone would make every buyer wait in line on a single row, which caps how fast the sale can go. Redis answers in memory in one step, and Postgres only has to write one row per buyer afterwards, with no contention.
@@ -126,19 +124,17 @@ The hot path (`POST /purchase` → reserve) touches only Redis, and it is a sing
 
   - _Trade-off:_ consistency over availability. If Redis is unreachable the sale stops (`/purchase` and `/sale/status` return 5xx) rather than guessing, so nobody is oversold or double-charged, whereas Postgres can be down for minutes and the sale keeps running.
 
-- **Reserving an item and recording its order are one Redis write (transactional outbox).** The same Lua call that takes the stock also appends the order to a Redis stream, so a crash can never leave a reservation with no order behind it. Each API worker drains that stream straight into Postgres — one batched insert per pass that skips rows already there — and only acknowledges an entry once its row is written; if a worker dies mid-way, another worker picks up its entries after `ORDER_OUTBOX_CLAIM_IDLE_MS` (default 30s). The stream is the only queue on the persist path: its consumer group is what gives at-least-once delivery, crash recovery and (via the delivery counter) the attempt count.
+- **Reserving an item and recording its order are one Redis write (transactional outbox).** The same Lua call that takes the stock also appends the order to a Redis stream, so a crash can never leave a reservation with no order behind it. Each API worker drains that stream straight into Postgres with retry with backoff, dead-letter queueing, and idempotence.
 
   - _Trade-off:_ one more moving part on the write path (a stream, a consumer group, and an extra Redis connection per worker), and an entry left by a crashed worker waits out that idle timer before it is written.
 
-- **The Postgres write is off the request path.** A buyer never waits on Postgres: a slow or unavailable database delays confirmations instead of blocking sales. The drainer retries until the write lands, backing off between passes (1s doubling to a cap, with jitter). A batch that fails is retried entry by entry in the same pass, so one entry that can never be written doesn't hold up the rest.
+- **The Postgres write is off the request path.** A buyer never waits on Postgres: a slow or unavailable database delays confirmations instead of blocking sales.
 
-  - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the drainer keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable. The hold is never released; the page says so after 15 s and keeps polling.
+  - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the drainer keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable.
 
-  - _Trade-off:_ retry backoff is per drainer pass rather than per order: while any entry a worker holds keeps failing, that worker pauses between passes (up to 15 s), so a single unwritable entry also delays the confirmations of new entries that worker would have read. The pause is capped at half `ORDER_OUTBOX_CLAIM_IDLE_MS` so a drainer waiting out a backoff is never mistaken for a dead one.
+- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 12 min).** An entry that still can't land is moved to a dead-letter stream next to the outbox and the drainer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention.
 
-- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 12 min).** An entry that still can't land is moved to a dead-letter stream next to the outbox and the drainer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention: `OrderOutboxService.replayDeadLettered(saleId, userId)` puts it back in the outbox with a fresh attempt count.
-
-  - _Trade-off:_ giving up bounds how long a dead Postgres is hammered, at the cost of an order that stays missing until someone intervenes, and dead-letter tooling is homegrown (a stream plus one replay method) rather than a queue library's.
+  - _Trade-off:_ giving up bounds how long a dead Postgres is hammered, at the cost of an order that stays missing until someone intervenes.
 
 - **The buyer is told "reserved" right away, and "confirmed" only by Postgres.** The purchase answers from Redis, so the buyer gets an instant answer; the page then polls and says "confirmed" only once the Order row exists. The UI never promises more than the store behind it can back up.
 
