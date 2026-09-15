@@ -54,9 +54,8 @@ describe('createThrottleRedisClient', () => {
   });
 
   it('opens its own connection to the main Redis when THROTTLE_REDIS_URL is unset', async () => {
-    const { createRedisClient, createThrottleRedisClient } = await import(
-      './redis-client.factory.ts'
-    );
+    const { createRedisClient, createThrottleRedisClient } =
+      await import('./redis-client.factory.ts');
 
     createRedisClient();
     createThrottleRedisClient();
@@ -69,9 +68,8 @@ describe('createThrottleRedisClient', () => {
 
   it('connects to THROTTLE_REDIS_URL when set', async () => {
     vi.stubEnv('THROTTLE_REDIS_URL', 'redis://throttle:6380');
-    const { createThrottleRedisClient } = await import(
-      './redis-client.factory.ts'
-    );
+    const { createThrottleRedisClient } =
+      await import('./redis-client.factory.ts');
 
     createThrottleRedisClient();
 
