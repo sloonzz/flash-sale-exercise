@@ -130,18 +130,6 @@ flowchart TB
 
   - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the drainer keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable.
 
-- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 12 min).** An entry that still can't land is moved to a dead-letter stream next to the outbox and the drainer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention.
-
-  - _Trade-off:_ giving up bounds how long a dead Postgres is hammered, at the cost of an order that stays missing until someone intervenes.
-
-- **The buyer is told "reserved" right away, and "confirmed" only by Postgres.** The purchase answers from Redis, so the buyer gets an instant answer; the page then polls and says "confirmed" only once the Order row exists. The UI never promises more than the store behind it can back up.
-
-  - _Trade-off:_ one extra confirmation step in the UX (normally under a second), a Postgres read per poll for users who hold a Reservation, and a check endpoint that degrades with Postgres while the purchase path does not.
-
-- **The page polls instead of using WebSockets.** A sale-status check is served from each worker's memory and refreshed from Redis once a second, a confirmation check is one Postgres lookup, and no server has to remember who is connected, so any server can answer any request.
-
-  - _Trade-off:_ sale state in the frontend can be up to 5 seconds stale (4s polling plus a 1s per-worker response cache) and a confirmation up to 1 second. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
-
 - **Servers hold no authoritative state.** Rate limits, stock, who has bought, and the outbox all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
 
 ### Known limitations (by design, for the time budget)
