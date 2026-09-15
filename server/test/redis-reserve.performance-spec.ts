@@ -9,7 +9,7 @@ import {
 import { RESERVE_SCRIPT } from '../src/reservation/reserve-script.ts';
 import { SPIKE_CONNECTIONS } from './support/config.ts';
 
-describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres/BullMQ)', () => {
+describe('RESERVE_SCRIPT ceiling (single Redis instance, no HTTP/Nest/Postgres)', () => {
   const redis = new Redis(REDIS_URL);
   const outboxKey = `order-outbox-perf-${randomUUID()}`;
   const saleIds: string[] = [];

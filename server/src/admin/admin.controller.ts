@@ -6,7 +6,7 @@ import {
 } from 'common';
 import { AdminKeyGuard } from './admin-key.guard.ts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts';
-import { SaleService } from './sale.service.ts';
+import { SaleService } from '../sale/sale.service.ts';
 
 @Controller('admin/sales')
 @UseGuards(AdminKeyGuard)

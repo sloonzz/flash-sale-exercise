@@ -1,10 +1,12 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { INestApplication } from '@nestjs/common';
+import type { Cache } from 'cache-manager';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Redis } from 'ioredis';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.ts';
-import { REDIS_URL } from '../src/config/env.ts';
+import { MEMORY_CACHE_TTL_MS, REDIS_URL } from '../src/config/env.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import {
   reservedUsersKey,
@@ -45,6 +47,7 @@ describe('Sale API (e2e)', () => {
       ...(await redis.keys('{*}:blocked')),
     );
     await redis.del(...keys);
+    await app.get<Cache>(CACHE_MANAGER).clear();
     await prisma.order.deleteMany({ where: { saleId: { in: saleIds } } });
     await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
     saleIds.length = 0;
@@ -250,6 +253,26 @@ describe('Sale API (e2e)', () => {
       expect(response.body.status).toBe('upcoming');
     });
 
+    it('serves the status from memory for the cache TTL, then re-reads Redis', async () => {
+      const saleId = await createSale({ totalStock: 1 });
+      await request(app.getHttpServer()).get('/sale/status').expect(200);
+
+      // Sell out behind the cache's back: the cached response still says active
+      await redis.set(stockKey(saleId), 0);
+      const cached = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(cached.body.status).toBe('active');
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, MEMORY_CACHE_TTL_MS + 50),
+      );
+      const fresh = await request(app.getHttpServer())
+        .get('/sale/status')
+        .expect(200);
+      expect(fresh.body.status).toBe('soldout');
+    });
+
     it('reports active while stock remains inside the time window', async () => {
       await createSale();
 
@@ -304,7 +327,7 @@ describe('Sale API (e2e)', () => {
     it('reads as reserved, not confirmed, while the Reservation has no Order yet', async () => {
       const saleId = await createSale();
       // A Reservation with no Order: what the check endpoint sees between the
-      // reserve script returning and the persist-order job landing.
+      // reserve script returning and the drainer writing the Order.
       await redis.sadd(reservedUsersKey(saleId), 'held-user');
 
       const response = await request(app.getHttpServer())

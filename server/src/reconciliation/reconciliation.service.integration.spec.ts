@@ -10,7 +10,7 @@ import {
   vi,
 } from 'vitest';
 import { RECONCILE_SALES_WINDOW_MS, REDIS_URL } from '../config/env.ts';
-import { OrderQueueProducer } from '../order/order-queue.producer.ts';
+import { OrderOutboxService } from '../order/outbox/order-outbox.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { reservedUsersKey, stockKey } from '../reservation/reservation-keys.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
@@ -18,10 +18,10 @@ import { ReconciliationService } from './reconciliation.service.ts';
 
 describe('ReconciliationService (integration)', () => {
   const prisma = new PrismaService();
-  const orderQueueProducer = {
-    enqueuePersistOrder: vi.fn().mockResolvedValue(undefined),
+  const orderOutbox = {
+    append: vi.fn().mockResolvedValue(undefined),
     listDeadLettered: vi.fn().mockResolvedValue([]),
-  } as unknown as OrderQueueProducer;
+  } as unknown as OrderOutboxService;
   const redis = new Redis(REDIS_URL);
   const reservationService = new ReservationService(
     redis,
@@ -30,7 +30,7 @@ describe('ReconciliationService (integration)', () => {
   const reconciliationService = new ReconciliationService(
     prisma,
     reservationService,
-    orderQueueProducer,
+    orderOutbox,
   );
   const saleIds: string[] = [];
 
@@ -133,7 +133,7 @@ describe('ReconciliationService (integration)', () => {
     ]);
   });
 
-  it('re-enqueues persist-order jobs for reserved users whose Order never landed', async () => {
+  it('re-appends outbox entries for reserved users whose Order never landed', async () => {
     const saleId = await createSale(5);
     await prisma.order.create({ data: { saleId, userId: 'user-1' } });
     await reservationService.initializeStock(saleId, 3);
@@ -141,8 +141,8 @@ describe('ReconciliationService (integration)', () => {
 
     await reconciliationService.reconcile(saleId);
 
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+    expect(orderOutbox.append).toHaveBeenCalledTimes(1);
+    expect(orderOutbox.append).toHaveBeenCalledWith(
       saleId,
       'user-2',
       expect.any(Date),
@@ -161,8 +161,8 @@ describe('ReconciliationService (integration)', () => {
     await reconciliationService.reconcileAllSales();
 
     expect(await redis.get(stockKey(newSaleId))).toBe('7');
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+    expect(orderOutbox.append).toHaveBeenCalledTimes(1);
+    expect(orderOutbox.append).toHaveBeenCalledWith(
       oldSaleId,
       'user-2',
       expect.any(Date),
@@ -185,8 +185,8 @@ describe('ReconciliationService (integration)', () => {
 
     expect(await redis.get(stockKey(staleSaleId))).toBeNull();
     expect(await redis.get(stockKey(recentSaleId))).toBe('5');
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledTimes(1);
-    expect(orderQueueProducer.enqueuePersistOrder).toHaveBeenCalledWith(
+    expect(orderOutbox.append).toHaveBeenCalledTimes(1);
+    expect(orderOutbox.append).toHaveBeenCalledWith(
       recentSaleId,
       'user-2',
       expect.any(Date),

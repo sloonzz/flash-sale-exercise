@@ -1,7 +1,5 @@
 # Flash Sale
 
-See [CONTEXT.md](./CONTEXT.md) for domain vocabulary and [docs/adr](./docs/adr) for architectural decisions.
-
 ## Layout
 
 This is a Yarn workspaces monorepo:
@@ -58,7 +56,7 @@ With the app running (`yarn dev`), a typical walkthrough:
 There are five kinds of server tests, from fastest/narrowest to slowest/broadest:
 
 - **Unit** (`*.spec.ts`) — no external infra required.
-- **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres/BullMQ directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
+- **Integration** (`*.integration.spec.ts`) — hit real Redis/Postgres directly (no HTTP layer). Requires `yarn dev`'s Docker infra running against your normal dev `DATABASE_URL`/`REDIS_URL`.
 - **E2E** (`*.e2e-spec.ts`) — spin up the Nest app in-process and exercise it over HTTP with supertest.
 - **Performance** (`*.performance-spec.ts`) — load-test the real app with `autocannon` against a clustered server and real Redis/Postgres, under both a short spike of many connections and a longer stress run with fewer.
 - **Fault tolerance** (`*.fault-spec.ts`) — boot the real app, break its infra (Postgres, Redis, the app itself) out from under it via the Docker CLI, and check it recovers with no lost or duplicated orders. Requires `docker` on your PATH; the suites run one file at a time since they take down the shared containers.
@@ -87,7 +85,7 @@ Performance tests default to a 4-worker clustered server and can be tuned via en
 
 ### System diagram
 
-**Redis decides, Postgres remembers, and only Postgres confirms.** The Reservation (stock decrement + one-per-user check + an outbox entry saying "persist this") is one atomic Lua script in Redis, answered synchronously as "reserved". The durable Order row is written to Postgres afterwards by a BullMQ consumer and retried until it lands; the buyer is told "confirmed" only once that row exists.
+**Redis decides, Postgres remembers, and only Postgres confirms.** The Reservation (stock decrement + one-per-user check + an outbox entry saying "persist this") is one atomic Lua script in Redis, answered synchronously as "reserved". The durable Order row is written to Postgres afterwards by a drainer that reads that outbox and retries until it lands; the buyer is told "confirmed" only once that row exists.
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontSize": "18px"}, "flowchart": {"nodeSpacing": 60, "rankSpacing": 70, "padding": 16}}}%%
@@ -98,12 +96,11 @@ flowchart TB
         HTTP["HTTP layer"]
         RES["Reservation<br/>Lua script"]
         DRAIN["Outbox drainer"]
-        CONS["BullMQ Consumer"]
     end
 
     subgraph redis["Redis"]
         STOCK[("stock · users · outbox")]
-        QUEUE[("order queue")]
+        DLQ[("dead-letter")]
     end
 
     PG[("Postgres<br/>orders")]
@@ -111,14 +108,11 @@ flowchart TB
     FE -->|"buy / poll status"| HTTP
     HTTP --> RES
     RES <-->|"reserve + outbox<br/>(one atomic call)"| STOCK
-    STOCK -->|"read outbox"| DRAIN
-    DRAIN -->|"enqueue"| QUEUE
-    QUEUE -->|"process, retry"| CONS
-    CONS -->|"upsert order"| PG
+    STOCK <-->|"read outbox, retry,<br/>ack once written"| DRAIN
+    DRAIN -->|"insert orders<br/>(batch, skip duplicates)"| PG
+    DRAIN -.->|"after N failed attempts"| DLQ
     HTTP -.->|"read order → confirmed"| PG
 ```
-
-The hot path (`POST /purchase` → reserve) touches only Redis, and it is a single Redis call: the same Lua script that decrements stock and marks the user also appends to the order outbox stream, so a Reservation can never exist without a record that its Order still needs persisting. The order write is async and idempotent (job id `saleId|userId`, upsert on `UNIQUE (sale_id, user_id)`), so retries and re-deliveries are harmless. The confirmation read (`GET /purchase/:saleId`) goes the other way round: it answers `confirmed` from the Postgres Order row, and falls back to Redis only to report `reserved` while that row is still in flight.
 
 ### Key decisions
 
@@ -128,15 +122,15 @@ The hot path (`POST /purchase` → reserve) touches only Redis, and it is a sing
 
   - _Trade-off:_ consistency over availability. If Redis is unreachable the sale stops (`/purchase` and `/sale/status` return 5xx) rather than guessing, so nobody is oversold or double-charged, whereas Postgres can be down for minutes and the sale keeps running.
 
-- **Reserving an item and queuing its order are one Redis write (transactional outbox).** The same Lua call that takes the stock also appends the order to a Redis stream, so a crash can never leave a reservation with no order behind it. Each API worker drains that stream into the job queue and only acknowledges an entry once it is queued; if a worker dies mid-way, another worker picks up its entries after `ORDER_OUTBOX_CLAIM_IDLE_MS` (default 30s).
+- **Reserving an item and recording its order are one Redis write (transactional outbox).** The same Lua call that takes the stock also appends the order to a Redis stream, so a crash can never leave a reservation with no order behind it. Each API worker drains that stream straight into Postgres with retry with backoff, dead-letter queueing, and idempotence.
 
-  - _Trade-off:_ one more moving part on the write path (a stream, a consumer group, and an extra Redis connection per worker), and an entry left by a crashed worker waits out that idle timer before it is queued.
+  - _Trade-off:_ one more moving part on the write path (a stream, a consumer group, and an extra Redis connection per worker), and an entry left by a crashed worker waits out that idle timer before it is written.
 
-- **A job queue writes the order to Postgres.** Taking that write off the request path means a buyer never waits on Postgres: a slow or unavailable database delays confirmations instead of blocking sales. The queue lives in Redis, so there is nothing extra to run, and it retries until the write lands. Each job is keyed by sale + user, so sending the same one twice does nothing.
+- **The Postgres write is off the request path.** A buyer never waits on Postgres: a slow or unavailable database delays confirmations instead of blocking sales.
 
-  - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the job keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable. The hold is never released; the page says so after 15 s and keeps polling.
+  - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the drainer keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable.
 
-- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 23 min).** A job that still can't land stays in BullMQ's `failed` set and the consumer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention.
+- **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 12 min).** An entry that still can't land is moved to a dead-letter stream next to the outbox and the drainer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention.
 
   - _Trade-off:_ giving up bounds how long a dead Postgres is hammered, at the cost of an order that stays missing until someone intervenes.
 
@@ -144,23 +138,23 @@ The hot path (`POST /purchase` → reserve) touches only Redis, and it is a sing
 
   - _Trade-off:_ one extra confirmation step in the UX (normally under a second), a Postgres read per poll for users who hold a Reservation, and a check endpoint that degrades with Postgres while the purchase path does not.
 
-- **The page polls instead of using WebSockets.** A sale-status check is two cheap Redis reads, a confirmation check is one Postgres lookup, and no server has to remember who is connected, so any server can answer any request.
+- **The page polls instead of using WebSockets.** A sale-status check is served from each worker's memory and refreshed from Redis once a second, a confirmation check is one Postgres lookup, and no server has to remember who is connected, so any server can answer any request.
 
-  - _Trade-off:_ sale state in the frontend can be up to 4 seconds stale and a confirmation up to 1 second. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
+  - _Trade-off:_ sale state in the frontend can be up to 5 seconds stale (4s polling plus a 1s per-worker response cache) and a confirmation up to 1 second. The countdown, however, runs in the frontend, so its staleness is virtually non-existent. Neither changes who gets an item.
 
-- **Servers hold no state.** Rate limits, stock, who has bought, and the queue all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
+- **Servers hold no authoritative state.** Rate limits, stock, who has bought, and the outbox all live in Redis, so scaling is just running more servers. The sale window (not started / live / ended) is checked before Redis is touched. Admin access is a shared secret and users are a plain id, as the assignment allows.
 
 ### Known limitations (by design, for the time budget)
 
 - No cloud deployment.
-- Single Redis instance: Sentinel/Cluster in production to shorten the outage window, reconciliation already covers "Redis came back empty".
 - Single API process using Node `cluster` workers instead of a load balancer in front of independent API replicas. The servers are stateless, so swapping to replicas is a deployment change, not a code change.
+- One monolithic API rather than microservices, so the parts can't be scaled independently: the purchase path, the status endpoint, the admin endpoints and the outbox drainer all scale together, as more cluster workers or more API replicas. Splitting out the drainer (the only component whose load is Postgres-bound rather than request-bound) would be the first cut if the workloads ever diverge.
 - No real auth: admin is a shared secret, users are a plain id.
-- No on-demand reconciliation endpoint in case of failure. Reconciliation runs only on startup (sales from the last `RECONCILE_SALES_WINDOW_MS`) and on sale creation (that sale). Its "reserved user with no Order → re-enqueue" step is kept as a safety net, but the outbox is what makes that case not happen in the first place.
+- No on-demand reconciliation endpoint in case of failure. Reconciliation runs only on startup (sales from the last `RECONCILE_SALES_WINDOW_MS`) and on sale creation (that sale). Its "reserved user with no Order → re-append to the outbox" step is kept as a safety net, but the outbox is what makes that case not happen in the first place.
 - No chaos test that kills a worker process mid-request — the cluster respawns workers, and the outbox fault test covers the equivalent: an entry read by a drainer that then dies is reclaimed by a live one.
 
-## Expected performance
+## Performance
 
-`yarn test:performance` runs [autocannon](https://github.com/mcollina/autocannon) against a real clustered server with real Redis and Postgres (spike: 1000 connections × 15s; stress: 100 × 60s; tune via `SPIKE_*` / `STRESS_*` / `CLUSTER_WORKERS` in `server/test/support/config.ts`), then waits for the async persist pipeline to drain — the wait is sized from the backlog (`SETTLE_GRACE_MS` + backlog / `SETTLE_ORDERS_PER_SECOND`, since a run where every request succeeds leaves far more orders than the run itself took to create) — and checks the invariants directly in the stores: an understocked sale ends with stock exactly 0 and exactly that many Orders, an overstocked sale has Orders == stock decremented == distinct users, and a same-user run yields exactly 1 Order — with zero errors, timeouts or non-2xx responses.
+The request path never waits on Postgres. Reserving an item is one atomic Redis script (check the user, decrement stock, record the user, append to the outbox), so the hot path has no locks, no transactions and no row contention; orders reach Postgres afterwards in batches from the outbox drainer, off the request path. Servers hold no authoritative state, so throughput scales with API workers or replicas until Redis saturates.
 
-On a 20-core WSL2 host with 4 workers this sustains ~27–36k `POST /purchase` req/s (p99 < 60 ms) on the sold-out / duplicate fast path, ~6–13k req/s when every request succeeds and is persisted through BullMQ, and ~48k req/s on `GET /sale/status`; the reserve script alone does ~75k ops/s, so the next bottleneck is API replicas, not Redis. Absolute numbers vary by hardware; the invariants are what the suite asserts.
+Each worker memoises what the rest of the path reads: the current Sale, a sold-out verdict, and the `/sale/status` response, all refreshed at most once per `MEMORY_CACHE_TTL_MS`. A live purchase is therefore two Redis round trips (rate limiter + reserve) and a sold-out one — the bulk of a flash sale's traffic — is just the rate limiter, while `/sale/status` costs Redis one read per worker per TTL instead of one per request. `yarn test:performance` runs autocannon spike and stress loads against the real clustered stack and asserts the stock and Order invariants afterwards; absolute numbers vary by hardware.

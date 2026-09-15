@@ -4,16 +4,18 @@ import { RedisModule } from './redis.module.ts';
 
 describe('RedisModule', () => {
   const mockClient = { quit: vi.fn() } as unknown as Redis;
+  const mockThrottleClient = { quit: vi.fn() } as unknown as Redis;
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('closes its Redis connection on module destroy', async () => {
-    const redisModule = new RedisModule(mockClient);
+  it('closes both Redis connections on module destroy', async () => {
+    const redisModule = new RedisModule(mockClient, mockThrottleClient);
 
     await redisModule.onModuleDestroy();
 
     expect(mockClient.quit).toHaveBeenCalled();
+    expect(mockThrottleClient.quit).toHaveBeenCalled();
   });
 });

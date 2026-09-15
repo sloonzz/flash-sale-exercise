@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { ORDER_OUTBOX_KEY } from '../order/order-outbox.ts';
+import { ORDER_OUTBOX_KEY } from '../order/outbox/order-outbox.ts';
 import { REDIS_CLIENT } from '../redis/redis.constants.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { RESERVE_SCRIPT } from './reserve-script.ts';

@@ -106,6 +106,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@cacheable/utils@npm:^2.5.0":
+  version: 2.5.0
+  resolution: "@cacheable/utils@npm:2.5.0"
+  dependencies:
+    hashery: "npm:^1.5.1"
+    keyv: "npm:^5.6.0"
+  checksum: 10c0/99e901accd71eeb0bce91484d6c66d7ef2c731b541561eb5dc9ea7fed78bdc0b65e5dd2a80edde50191143bcfc5f238fc4742475b32e82d43b43eea224038e35
+  languageName: node
+  linkType: hard
+
 "@colors/colors@npm:1.5.0":
   version: 1.5.0
   resolution: "@colors/colors@npm:1.5.0"
@@ -556,6 +566,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@keyv/serialize@npm:^1.1.1":
+  version: 1.1.1
+  resolution: "@keyv/serialize@npm:1.1.1"
+  checksum: 10c0/b0008cae4a54400c3abf587b8cc2474c6f528ee58969ce6cf9cb07a04006f80c73c85971d6be6544408318a2bc40108236a19a82aea0a6de95aae49533317374
+  languageName: node
+  linkType: hard
+
 "@lukeed/csprng@npm:^1.0.0":
   version: 1.1.0
   resolution: "@lukeed/csprng@npm:1.1.0"
@@ -569,48 +586,6 @@ __metadata:
   dependencies:
     minimist: "npm:^1.1.0"
   checksum: 10c0/5b1d5cbf703ca316fdb0f1f52d3c17bd74a691a685c09a245d3f0be9681329ef92060e2e91f19f33973e67993868e002aba7268a9b8be679e0391c9171f0f858
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-darwin-arm64@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-darwin-arm64@npm:3.0.4"
-  conditions: os=darwin & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-darwin-x64@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-darwin-x64@npm:3.0.4"
-  conditions: os=darwin & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-linux-arm64@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-linux-arm64@npm:3.0.4"
-  conditions: os=linux & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-linux-arm@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-linux-arm@npm:3.0.4"
-  conditions: os=linux & cpu=arm
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-linux-x64@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-linux-x64@npm:3.0.4"
-  conditions: os=linux & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@msgpackr-extract/msgpackr-extract-win32-x64@npm:3.0.4":
-  version: 3.0.4
-  resolution: "@msgpackr-extract/msgpackr-extract-win32-x64@npm:3.0.4"
-  conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
@@ -652,29 +627,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@nestjs/bull-shared@npm:^12.0.0":
+"@nestjs/cache-manager@npm:^12.0.0":
   version: 12.0.0
-  resolution: "@nestjs/bull-shared@npm:12.0.0"
-  dependencies:
-    tslib: "npm:2.8.1"
+  resolution: "@nestjs/cache-manager@npm:12.0.0"
   peerDependencies:
-    "@nestjs/common": ^10.0.0 || ^11.0.0 || ^12.0.0
-    "@nestjs/core": ^10.0.0 || ^11.0.0 || ^12.0.0
-  checksum: 10c0/781a37c8e4b095630a451a77f8c0f9a210982c3e2c768e5bf046d84da4aed7907fc5701062e35368d6f2116ed7c8be7fd768cd41c7c88d9ae6f250b866f2ab0d
-  languageName: node
-  linkType: hard
-
-"@nestjs/bullmq@npm:^12.0.0":
-  version: 12.0.0
-  resolution: "@nestjs/bullmq@npm:12.0.0"
-  dependencies:
-    "@nestjs/bull-shared": "npm:^12.0.0"
-    tslib: "npm:2.8.1"
-  peerDependencies:
-    "@nestjs/common": ^10.0.0 || ^11.0.0 || ^12.0.0
-    "@nestjs/core": ^10.0.0 || ^11.0.0 || ^12.0.0
-    bullmq: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0
-  checksum: 10c0/45fd891c766b31e8deacc0ad5c9e96bea7bda4b85a9e6e2041ba131521708bf5d4bb62960f1d8bee9b1fd2b83f022ee5f264710448924532f6b9ff38c08f5797
+    "@nestjs/common": ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+    "@nestjs/core": ^9.0.0 || ^10.0.0 || ^11.0.0 || ^12.0.0
+    cache-manager: ">=6"
+    keyv: ">=5"
+    rxjs: ^7.8.1
+  checksum: 10c0/b818de52d4398cdd3bb1fa41c9358c3546d497c0b7f242225e50bc149898d7d10e61635c36009763d3668ac7c44ef7870b83ca649b2d4f35a6201074d3779276
   languageName: node
   linkType: hard
 
@@ -2786,33 +2748,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bullmq@npm:^6.3.4":
-  version: 6.3.4
-  resolution: "bullmq@npm:6.3.4"
-  dependencies:
-    cron-parser: "npm:5.10.0"
-    msgpackr: "npm:2.1.0"
-    node-abort-controller: "npm:3.1.1"
-    semver: "npm:7.8.5"
-    tslib: "npm:2.8.1"
-  peerDependencies:
-    bullmq-otel: ">=2.0.0"
-    ioredis: ">=5.0.0"
-    pg: ">=8.0.0"
-    redis: ">=5.0.0"
-  peerDependenciesMeta:
-    bullmq-otel:
-      optional: true
-    ioredis:
-      optional: true
-    pg:
-      optional: true
-    redis:
-      optional: true
-  checksum: 10c0/d6400f6123716e4bea6ad0dfbb88049080cf5d1f1b87ce1bb7265bba722c4bc5d4beee674f7851f662ef618a7341e5408a4773b973a20f678cb4b113be3f5046
-  languageName: node
-  linkType: hard
-
 "busboy@npm:^1.6.0":
   version: 1.6.0
   resolution: "busboy@npm:1.6.0"
@@ -2851,6 +2786,16 @@ __metadata:
     magicast:
       optional: true
   checksum: 10c0/d305df0c6e219464b3460fdd3443e62590e7d0d2f331e450a44f29e31e7120a0c7a6a76b6212bc0cf9f41058e3545c4fd04b0f1c6ea8d549678ea6479d94d8ad
+  languageName: node
+  linkType: hard
+
+"cache-manager@npm:^7.2.9":
+  version: 7.2.9
+  resolution: "cache-manager@npm:7.2.9"
+  dependencies:
+    "@cacheable/utils": "npm:^2.5.0"
+    keyv: "npm:^5.6.0"
+  checksum: 10c0/b4146edb102c7f49f9eb804c48ffb370405594e36f3e391093c35f5589b25fcd51cb33291589e453882745b60d669f7be21411c86864746d74ef9287ef238af8
   languageName: node
   linkType: hard
 
@@ -3198,15 +3143,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cron-parser@npm:5.10.0":
-  version: 5.10.0
-  resolution: "cron-parser@npm:5.10.0"
-  dependencies:
-    luxon: "npm:^3.7.2"
-  checksum: 10c0/bf8ad9b121140aadc295eb5a0d0e67df44b237e397e95fa1ab5d9e87f2c9923c727ce3541989af56b8c666a929a51015bcd23d2e37ebda3bcaf3b9f0b555959c
-  languageName: node
-  linkType: hard
-
 "cross-argv@npm:^2.0.0":
   version: 2.0.0
   resolution: "cross-argv@npm:2.0.0"
@@ -3417,7 +3353,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"detect-libc@npm:^2.0.1, detect-libc@npm:^2.0.3":
+"detect-libc@npm:^2.0.3":
   version: 2.1.2
   resolution: "detect-libc@npm:2.1.2"
   checksum: 10c0/acc675c29a5649fa1fb6e255f993b8ee829e510b6b56b0910666949c80c364738833417d0edb5f90e4e46be17228b0f2b66a010513984e18b15deeeac49369c4
@@ -4042,6 +3978,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"hashery@npm:^1.5.1":
+  version: 1.5.1
+  resolution: "hashery@npm:1.5.1"
+  dependencies:
+    hookified: "npm:^1.15.0"
+  checksum: 10c0/ab4225b655a7b0d05df99b1a59d5b3a51fe433f82422ca25e6f3f4c4ddd30adb49ebd38e0047ef9bded93319c1e9fc857e16aa382e554929c871cb77d39fc463
+  languageName: node
+  linkType: hard
+
 "hasown@npm:^2.0.2, hasown@npm:^2.0.4":
   version: 2.0.4
   resolution: "hasown@npm:2.0.4"
@@ -4066,6 +4011,13 @@ __metadata:
   version: 3.0.0
   resolution: "hdr-histogram-percentiles-obj@npm:3.0.0"
   checksum: 10c0/7b1c90b01bdee22da3b6e1f95fdbe186ceb6875a53340c3615f6e9899ee5d4bc6624a0fe67a15b0e59ccddca8d3b835911214285a77fa22a04cf64c9e3d64d39
+  languageName: node
+  linkType: hard
+
+"hookified@npm:^1.15.0":
+  version: 1.15.1
+  resolution: "hookified@npm:1.15.1"
+  checksum: 10c0/6b691374fa97ae57169fb29f90e723499fda5e85494654fbe55c4768b3ccbf3e14c0adc8d0f365f32c503b60d7c06f907781f5966c03d41c423575eb5e16860c
   languageName: node
   linkType: hard
 
@@ -4336,6 +4288,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"keyv@npm:^5.6.0":
+  version: 5.6.0
+  resolution: "keyv@npm:5.6.0"
+  dependencies:
+    "@keyv/serialize": "npm:^1.1.1"
+  checksum: 10c0/c3ea795b6e03593ca57c8f70928a69bad14c13389a7fb75649a115ff55615244b04d8902798d841c17f0bb4a8a8866c97133b543b93f151b440170bba09176db
+  languageName: node
+  linkType: hard
+
 "lightningcss-android-arm64@npm:1.33.0":
   version: 1.33.0
   resolution: "lightningcss-android-arm64@npm:1.33.0"
@@ -4525,13 +4486,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"luxon@npm:^3.7.2":
-  version: 3.7.2
-  resolution: "luxon@npm:3.7.2"
-  checksum: 10c0/ed8f0f637826c08c343a29dd478b00628be93bba6f068417b1d8896b61cb61c6deacbe1df1e057dbd9298334044afa150f9aaabbeb3181418ac8520acfdc2ae2
-  languageName: node
-  linkType: hard
-
 "magic-string@npm:1.0.0":
   version: 1.0.0
   resolution: "magic-string@npm:1.0.0"
@@ -4706,49 +4660,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"msgpackr-extract@npm:^3.0.4":
-  version: 3.0.4
-  resolution: "msgpackr-extract@npm:3.0.4"
-  dependencies:
-    "@msgpackr-extract/msgpackr-extract-darwin-arm64": "npm:3.0.4"
-    "@msgpackr-extract/msgpackr-extract-darwin-x64": "npm:3.0.4"
-    "@msgpackr-extract/msgpackr-extract-linux-arm": "npm:3.0.4"
-    "@msgpackr-extract/msgpackr-extract-linux-arm64": "npm:3.0.4"
-    "@msgpackr-extract/msgpackr-extract-linux-x64": "npm:3.0.4"
-    "@msgpackr-extract/msgpackr-extract-win32-x64": "npm:3.0.4"
-    node-gyp: "npm:latest"
-    node-gyp-build-optional-packages: "npm:5.2.2"
-  dependenciesMeta:
-    "@msgpackr-extract/msgpackr-extract-darwin-arm64":
-      optional: true
-    "@msgpackr-extract/msgpackr-extract-darwin-x64":
-      optional: true
-    "@msgpackr-extract/msgpackr-extract-linux-arm":
-      optional: true
-    "@msgpackr-extract/msgpackr-extract-linux-arm64":
-      optional: true
-    "@msgpackr-extract/msgpackr-extract-linux-x64":
-      optional: true
-    "@msgpackr-extract/msgpackr-extract-win32-x64":
-      optional: true
-  bin:
-    download-msgpackr-prebuilds: bin/download-prebuilds.js
-  checksum: 10c0/582a9d17abbf3019e600e948736695056280ce401fd0235ee2474e95f9952208b9f6cce4d0e355b03b7d3c5630e6c3d11fe5fc27fdedb2311cce48de464338d8
-  languageName: node
-  linkType: hard
-
-"msgpackr@npm:2.1.0":
-  version: 2.1.0
-  resolution: "msgpackr@npm:2.1.0"
-  dependencies:
-    msgpackr-extract: "npm:^3.0.4"
-  dependenciesMeta:
-    msgpackr-extract:
-      optional: true
-  checksum: 10c0/9fcfd08ab99e2499ccd3e7ae188737ed4f629e326ad89ff6f28f4c29e01d0625f679bebb28509ef8cb160ca0c317680c7153e7493c5b472ef3d6ff4b9eac5771
-  languageName: node
-  linkType: hard
-
 "multer@npm:2.2.0":
   version: 2.2.0
   resolution: "multer@npm:2.2.0"
@@ -4819,13 +4730,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-abort-controller@npm:3.1.1":
-  version: 3.1.1
-  resolution: "node-abort-controller@npm:3.1.1"
-  checksum: 10c0/f7ad0e7a8e33809d4f3a0d1d65036a711c39e9d23e0319d80ebe076b9a3b4432b4d6b86a7fab65521de3f6872ffed36fc35d1327487c48eb88c517803403eda3
-  languageName: node
-  linkType: hard
-
 "node-emoji@npm:2.1.3":
   version: 2.1.3
   resolution: "node-emoji@npm:2.1.3"
@@ -4847,19 +4751,6 @@ __metadata:
     emojilib: "npm:^2.4.0"
     skin-tone: "npm:^2.0.0"
   checksum: 10c0/9525defbd90a82a2131758c2470203fa2a2faa8edd177147a8654a26307fe03594e52847ecbe2746d06cfc5c50acd12bd500f035350a7609e8217c9894c19aad
-  languageName: node
-  linkType: hard
-
-"node-gyp-build-optional-packages@npm:5.2.2":
-  version: 5.2.2
-  resolution: "node-gyp-build-optional-packages@npm:5.2.2"
-  dependencies:
-    detect-libc: "npm:^2.0.1"
-  bin:
-    node-gyp-build-optional-packages: bin.js
-    node-gyp-build-optional-packages-optional: optional.js
-    node-gyp-build-optional-packages-test: build-test.js
-  checksum: 10c0/c81128c6f91873381be178c5eddcbdf66a148a6a89a427ce2bcd457593ce69baf2a8662b6d22cac092d24aa9c43c230dec4e69b3a0da604503f4777cd77e282b
   languageName: node
   linkType: hard
 
@@ -5739,7 +5630,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:7.8.5, semver@npm:^7.3.2, semver@npm:^7.3.5, semver@npm:^7.5.3":
+"semver@npm:^7.3.2, semver@npm:^7.3.5, semver@npm:^7.5.3":
   version: 7.8.5
   resolution: "semver@npm:7.8.5"
   bin:
@@ -5791,7 +5682,7 @@ __metadata:
   resolution: "server@workspace:server"
   dependencies:
     "@nest-lab/throttler-storage-redis": "npm:^1.2.0"
-    "@nestjs/bullmq": "npm:^12.0.0"
+    "@nestjs/cache-manager": "npm:^12.0.0"
     "@nestjs/cli": "npm:^12.0.0"
     "@nestjs/common": "npm:^12.0.1"
     "@nestjs/core": "npm:^12.0.1"
@@ -5811,10 +5702,11 @@ __metadata:
     "@types/supertest": "npm:^7.0.0"
     "@vitest/coverage-v8": "npm:^4.1.2"
     autocannon: "npm:^8.0.0"
-    bullmq: "npm:^6.3.4"
+    cache-manager: "npm:^7.2.9"
     common: "workspace:^"
     dotenv: "npm:^17.4.2"
     ioredis: "npm:^6.0.0"
+    keyv: "npm:^5.6.0"
     oxlint: "npm:^1.58.0"
     pg: "npm:^8.23.0"
     prettier: "npm:^3.4.2"

@@ -259,8 +259,8 @@ export function BuyerPage() {
         {securedStatus === 'confirmed' && (
           <p className="banner banner-success">
             {purchaseMutation.data?.result === 'success'
-              ? 'Order confirmed — you got one!'
-              : "You've secured an item in this sale."}
+              ? 'Order confirmed: you got one!'
+              : "You've already secured an item in this sale."}
           </p>
         )}
 

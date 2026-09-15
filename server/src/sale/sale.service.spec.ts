@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { ReconciliationService } from '../reconciliation/reconciliation.service.ts';
 import { ReservationService } from '../reservation/reservation.service.ts';
+import { createCache, type Cache } from 'cache-manager';
 import {
   currentSaleKey,
   serializeSale,
@@ -36,12 +37,9 @@ describe('SaleService', () => {
     get: vi.fn(),
     set: vi.fn(),
   };
-  const saleService = new SaleService(
-    prisma,
-    reservationService,
-    reconciliationService,
-    redis as unknown as Redis,
-  );
+  const cacheTtlMs = 1_000;
+  let cache: Cache;
+  let saleService: SaleService;
 
   function makeSale(overrides: Partial<CachedSale> = {}): CachedSale {
     const now = Date.now();
@@ -62,6 +60,14 @@ describe('SaleService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.sale.findFirst).mockResolvedValue(null);
+    cache = createCache({ ttl: cacheTtlMs });
+    saleService = new SaleService(
+      prisma,
+      reservationService,
+      reconciliationService,
+      redis as unknown as Redis,
+      cache,
+    );
   });
 
   describe('getStatus', () => {
@@ -83,6 +89,45 @@ describe('SaleService', () => {
       expect(redis.get).toHaveBeenCalledWith(currentSaleKey());
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
       expect(prisma.sale.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('memoises the current sale in memory so repeat requests within the TTL skip Redis', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+
+      await saleService.getStatus();
+      await saleService.getStatus();
+      await saleService.purchase('user-1', sale.id);
+
+      expect(redis.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-reads the current sale from Redis once the in-memory TTL expires', async () => {
+      vi.useFakeTimers();
+      try {
+        const sale = makeSale();
+        seedCurrentSale(sale);
+        vi.mocked(reservationService.getStock).mockResolvedValue(5);
+
+        await saleService.getStatus();
+        vi.advanceTimersByTime(cacheTtlMs + 1);
+        await saleService.getStatus();
+
+        expect(redis.get).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('memoises "no sale" so a quiet deployment does not hit Redis and Postgres on every poll', async () => {
+      seedCurrentSale();
+
+      await saleService.getStatus();
+      await saleService.getStatus();
+
+      expect(redis.get).toHaveBeenCalledTimes(1);
+      expect(prisma.sale.findFirst).toHaveBeenCalledTimes(1);
     });
 
     it('recovers the current sale from Postgres and backfills the cache on a cache miss', async () => {
@@ -146,6 +191,60 @@ describe('SaleService', () => {
         product: sale.productName,
       });
     });
+
+    it('answers soldout from the in-memory cache without reading stock once stock was seen exhausted', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.getStock).mockResolvedValue(0);
+
+      await saleService.getStatus();
+      await expect(saleService.getStatus()).resolves.toMatchObject({
+        status: 'soldout',
+      });
+
+      expect(reservationService.getStock).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers soldout from the cache when a purchase attempt already saw the sale sell out', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.reserve).mockResolvedValue('sold_out');
+
+      await saleService.purchase('user-1', sale.id);
+      await expect(saleService.getStatus()).resolves.toMatchObject({
+        status: 'soldout',
+      });
+
+      expect(reservationService.getStock).not.toHaveBeenCalled();
+    });
+
+    it('re-reads stock once the sold-out cache entry expires', async () => {
+      vi.useFakeTimers();
+      try {
+        const sale = makeSale();
+        seedCurrentSale(sale);
+        vi.mocked(reservationService.getStock).mockResolvedValue(0);
+
+        await saleService.getStatus();
+        vi.advanceTimersByTime(cacheTtlMs + 1);
+        await saleService.getStatus();
+
+        expect(reservationService.getStock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not cache active stock', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.getStock).mockResolvedValue(1);
+
+      await saleService.getStatus();
+      await saleService.getStatus();
+
+      expect(reservationService.getStock).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('purchase', () => {
@@ -200,6 +299,86 @@ describe('SaleService', () => {
         saleService.purchase('user-1', 'a-stale-sale-id'),
       ).resolves.toBe('invalid_sale');
       expect(reservationService.reserve).not.toHaveBeenCalled();
+    });
+
+    it('answers sold_out from the in-memory cache without hitting Redis once a reservation reported sold out', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.reserve).mockResolvedValue('sold_out');
+
+      await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
+        'sold_out',
+      );
+      await expect(saleService.purchase('user-2', sale.id)).resolves.toBe(
+        'sold_out',
+      );
+
+      expect(reservationService.reserve).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers sold_out from the cache when a status check already saw stock exhausted', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.getStock).mockResolvedValue(0);
+
+      await saleService.getStatus();
+      await expect(saleService.purchase('user-1', sale.id)).resolves.toBe(
+        'sold_out',
+      );
+
+      expect(reservationService.reserve).not.toHaveBeenCalled();
+    });
+
+    it('retries the reservation once the sold-out cache entry expires', async () => {
+      vi.useFakeTimers();
+      try {
+        const sale = makeSale();
+        seedCurrentSale(sale);
+        vi.mocked(reservationService.reserve).mockResolvedValue('sold_out');
+
+        await saleService.purchase('user-1', sale.id);
+        vi.advanceTimersByTime(cacheTtlMs + 1);
+        await saleService.purchase('user-2', sale.id);
+
+        expect(reservationService.reserve).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not cache success or already_purchased results', async () => {
+      const sale = makeSale();
+      seedCurrentSale(sale);
+      vi.mocked(reservationService.reserve)
+        .mockResolvedValueOnce('success')
+        .mockResolvedValueOnce('already_purchased');
+
+      await saleService.purchase('user-1', sale.id);
+      await saleService.purchase('user-1', sale.id);
+      vi.mocked(reservationService.reserve).mockResolvedValue('success');
+      await expect(saleService.purchase('user-2', sale.id)).resolves.toBe(
+        'success',
+      );
+
+      expect(reservationService.reserve).toHaveBeenCalledTimes(3);
+    });
+
+    it('still reports ended over a cached sold_out once the window closes', async () => {
+      vi.useFakeTimers();
+      try {
+        const sale = makeSale({ endTime: new Date(Date.now() + 500) });
+        seedCurrentSale(sale);
+        vi.mocked(reservationService.reserve).mockResolvedValue('sold_out');
+
+        await saleService.purchase('user-1', sale.id);
+        vi.advanceTimersByTime(501);
+
+        await expect(saleService.purchase('user-2', sale.id)).resolves.toBe(
+          'ended',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -265,6 +444,29 @@ describe('SaleService', () => {
         serializeSale(created),
       );
       expect(reconciliationService.reconcile).toHaveBeenCalledWith(created.id);
+    });
+
+    it('drops everything this worker memoised about the previous sale', async () => {
+      const created = makeSale(input);
+      vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
+      await cache.set('/sale/status', { status: 'soldout' });
+
+      await saleService.createSale(input);
+
+      await expect(cache.get('/sale/status')).resolves.toBeUndefined();
+    });
+
+    it('primes the in-memory current sale so the creating worker serves it without a Redis read', async () => {
+      const created = makeSale(input);
+      vi.mocked(prisma.sale.create).mockResolvedValue(created as never);
+      vi.mocked(reservationService.getStock).mockResolvedValue(5);
+
+      await saleService.createSale(input);
+      await expect(saleService.getStatus()).resolves.toMatchObject({
+        id: created.id,
+      });
+
+      expect(redis.get).not.toHaveBeenCalled();
     });
   });
 });

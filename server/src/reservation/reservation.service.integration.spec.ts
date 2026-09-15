@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { REDIS_URL } from '../config/env.ts';
-import { parseOrderOutboxEntry } from '../order/order-outbox.ts';
+import { parseOrderOutboxEntry } from '../order/outbox/order-outbox.ts';
 import { reservedUsersKey, stockKey } from './reservation-keys.ts';
 import { ReservationService } from './reservation.service.ts';
 
