@@ -1,9 +1,14 @@
+import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { PrismaPg } from '@prisma/adapter-pg';
 import autocannon from 'autocannon';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, expect } from 'vitest';
-import { DATABASE_URL, REDIS_URL } from '../../src/config/env.ts';
+import {
+  DATABASE_URL,
+  MEMORY_CACHE_TTL_MS,
+  REDIS_URL,
+} from '../../src/config/env.ts';
 import { PrismaClient } from '../../src/generated/prisma/client.ts';
 import { ORDER_OUTBOX_DEFAULT_KEY } from '../../src/order/outbox/order-outbox.ts';
 import {
@@ -155,6 +160,9 @@ export function usePerformanceHarness(): PerformanceHarness {
       expect(response.status).toBe(201);
       const body = (await response.json()) as { id: string };
       saleIds.push(body.id);
+
+      // Wait for cache invalidation
+      await setTimeout(MEMORY_CACHE_TTL_MS + 100);
       return body.id;
     },
 
