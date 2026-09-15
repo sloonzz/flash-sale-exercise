@@ -147,6 +147,7 @@ export class OrderOutboxDrainer
    * stranded by a dead drainer, then read new ones, and write them all.
    */
   async drainOnce(): Promise<DrainResult> {
+    const startedAt = Date.now();
     await this.ensureGroup();
 
     const entries = dedupeById([
@@ -154,7 +155,10 @@ export class OrderOutboxDrainer
       ...(await this.claimStale()),
       ...(await this.readNew()),
     ]);
-    if (entries.length === 0) return { handled: 0, backoffMs: 0 };
+    if (entries.length === 0) {
+      this.consecutiveFailures = 0;
+      return { handled: 0, backoffMs: 0 };
+    }
 
     const failed = await this.persist(entries);
     const failedIds = new Set(failed.map(([entry]) => entry.id));
@@ -167,16 +171,24 @@ export class OrderOutboxDrainer
     }
     this.consecutiveFailures += 1;
     await this.retryOrDeadLetter(failed);
-    return { handled: entries.length, backoffMs: this.backoffMs() };
+    return { handled: entries.length, backoffMs: this.backoffMs(startedAt) };
   }
 
-  // Capped so a drainer waiting out a backoff never leaves its pending
-  // entries idle long enough for another drainer to mistake it for dead and
-  // reclaim them (which would count as extra attempts against them).
-  private backoffMs(): number {
-    return Math.min(
-      persistOrderBackoffDelay(this.consecutiveFailures),
-      ORDER_OUTBOX_CLAIM_IDLE_MS / 2,
+  /**
+   * Bounded so the entries this drainer still holds never sit idle long
+   * enough for another drainer to take it for dead and reclaim them (which
+   * would count as extra attempts against them). Idle is measured from the
+   * read at the start of the pass, so the pass itself — a hung write, say —
+   * eats into the wait.
+   */
+  private backoffMs(passStartedAt: number): number {
+    const elapsed = Date.now() - passStartedAt;
+    return Math.max(
+      0,
+      Math.min(
+        persistOrderBackoffDelay(this.consecutiveFailures),
+        ORDER_OUTBOX_CLAIM_IDLE_MS / 2 - elapsed,
+      ),
     );
   }
 
@@ -338,14 +350,14 @@ export class OrderOutboxDrainer
     const exhausted: [OrderOutboxEntry, number, Error][] = [];
 
     for (const [entry, error] of failed) {
-      const made = attempts.get(entry.id);
-      if (made !== undefined && made >= PERSIST_ORDER_ATTEMPTS) {
-        exhausted.push([entry, made, error]);
+      const deliveries = attempts.get(entry.id);
+      if (deliveries !== undefined && deliveries >= PERSIST_ORDER_ATTEMPTS) {
+        exhausted.push([entry, deliveries, error]);
         continue;
       }
       this.logger.error(
         `Failed to persist Order for sale ${entry.saleId}, user ${entry.userId} ` +
-          `(attempt ${made ?? '?'} of ${PERSIST_ORDER_ATTEMPTS}); ` +
+          `(attempt ${deliveries ?? '?'} of ${PERSIST_ORDER_ATTEMPTS}); ` +
           `outbox entry ${entry.id} left pending and will be retried`,
         error,
       );

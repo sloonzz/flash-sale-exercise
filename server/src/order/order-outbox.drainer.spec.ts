@@ -339,6 +339,44 @@ describe('OrderOutboxDrainer', () => {
     expect(backoffMs).toBeGreaterThan(0);
   });
 
+  it('counts a slow pass (a hung write) against the backoff, since its entries have been idle since the read', async () => {
+    vi.useFakeTimers();
+    try {
+      stream([entry('user-1')], []);
+      createMany.mockImplementation((() => {
+        vi.advanceTimersByTime(ORDER_OUTBOX_CLAIM_IDLE_MS / 2 - 100);
+        return Promise.reject(new Error('timeout'));
+      }) as never);
+      deliveries({});
+
+      const { backoffMs } = await newDrainer().drainOnce();
+
+      expect(backoffMs).toBeLessThanOrEqual(100);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts backing off from scratch after an idle pass', async () => {
+    createMany.mockRejectedValue(new Error('connection refused'));
+    deliveries({});
+    const drainer = newDrainer();
+    stream([entry('user-1')], []);
+    await drainer.drainOnce();
+    await drainer.drainOnce();
+
+    stream([], []);
+    await expect(drainer.drainOnce()).resolves.toEqual({
+      handled: 0,
+      backoffMs: 0,
+    });
+    stream([entry('user-2')], []);
+    within(
+      (await drainer.drainOnce()).backoffMs,
+      PERSIST_ORDER_BACKOFF_BASE_MS,
+    );
+  });
+
   it(`dead-letters an entry that has failed PERSIST_ORDER_ATTEMPTS times, atomically with its ack, and keeps the others pending`, async () => {
     const saleId = randomUUID();
     const exhausted = entry('user-exhausted', saleId);

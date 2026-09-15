@@ -134,7 +134,7 @@ The hot path (`POST /purchase` → reserve) touches only Redis, and it is a sing
 
   - _Trade-off:_ once the item is reserved, that decision is final. If the Postgres write fails, the drainer keeps retrying rather than reversing the purchase, so the buyer can sit on "reserved, confirming your order…" for seconds or minutes while Postgres is unavailable. The hold is never released; the page says so after 15 s and keeps polling.
 
-  - _Trade-off:_ retry backoff is per drainer pass rather than per order, and it is capped at half `ORDER_OUTBOX_CLAIM_IDLE_MS` so a drainer waiting out a backoff is never mistaken for a dead one.
+  - _Trade-off:_ retry backoff is per drainer pass rather than per order: while any entry a worker holds keeps failing, that worker pauses between passes (up to 15 s), so a single unwritable entry also delays the confirmations of new entries that worker would have read. The pause is capped at half `ORDER_OUTBOX_CLAIM_IDLE_MS` so a drainer waiting out a backoff is never mistaken for a dead one.
 
 - **Dead-letter after `PERSIST_ORDER_ATTEMPTS` (default 50 ≈ 12 min).** An entry that still can't land is moved to a dead-letter stream next to the outbox and the drainer logs a `DEAD-LETTERED` error naming the sale and user. This would signal a need for manual intervention: `OrderOutboxService.replayDeadLettered(saleId, userId)` puts it back in the outbox with a fresh attempt count.
 

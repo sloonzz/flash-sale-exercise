@@ -7,7 +7,9 @@
  * would wait days before trying again. A Postgres outage that lasts minutes
  * should be recovered from within seconds of it ending, so the delay is capped.
  *
- * Delays: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ... (±20% jitter).
+ * Delays: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ... (±20% jitter), further capped
+ * by the drainer at half ORDER_OUTBOX_CLAIM_IDLE_MS (15s by default) so a
+ * drainer waiting out a backoff is never mistaken for a dead one.
  *
  * Dead-letter: an entry that exhausts its attempts is moved to the outbox's
  * dead-letter stream (orderOutboxDeadLetterKey). The drainer logs it as
