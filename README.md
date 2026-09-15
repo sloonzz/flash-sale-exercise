@@ -1,7 +1,5 @@
 # Flash Sale
 
-See [CONTEXT.md](./CONTEXT.md) for domain vocabulary and [docs/adr](./docs/adr) for architectural decisions.
-
 ## Layout
 
 This is a Yarn workspaces monorepo:
